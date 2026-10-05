@@ -1,5 +1,8 @@
 import unittest
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
 from fastapi import FastAPI
@@ -17,6 +20,7 @@ from domains.projects.errors import (
     ProjectNotFound,
 )
 from domains.projects.model import Project
+from domains.projects.repo import ProjectRepository
 from domains.projects.service import ProjectService
 
 PROJECT_ID = UUID("019535d9-3df7-79fb-b466-fa907fa17f9e")
@@ -49,7 +53,7 @@ class FakeProjectStore:
 
     async def create(self, name: str, organization_id: UUID, user_id: UUID) -> Project | None:
         self.saved_args = (name, organization_id, user_id)
-        self.project = Project(PROJECT_ID, organization_id, name, datetime.now(UTC))
+        self.project = Project(PROJECT_ID, organization_id, name, "abc1234", datetime.now(UTC))
         return self.project
 
     async def get(
@@ -72,6 +76,34 @@ class ProjectServiceTests(unittest.IsolatedAsyncioTestCase):
         ).create("  My app  ", ORGANIZATION_ID, USER_ID)
         self.assertEqual(store.saved_args, ("My app", ORGANIZATION_ID, USER_ID))
         self.assertEqual(result.name, "My app")
+
+    async def test_repository_retries_public_id_collision(self) -> None:
+        @asynccontextmanager
+        async def connection():
+            yield object()
+
+        engine = SimpleNamespace(begin=connection)
+        row = SimpleNamespace(
+            id=PROJECT_ID,
+            organization_id=ORGANIZATION_ID,
+            name="My app",
+            public_id="xyz5678",
+            created_at=datetime.now(UTC),
+        )
+        create_project = AsyncMock(side_effect=[None, row])
+        with (
+            patch("domains.projects.repo.AsyncQuerier") as querier,
+            patch("domains.projects.repo.secrets.choice", side_effect="abc1234xyz5678"),
+        ):
+            querier.return_value.create_project = create_project
+            project = await ProjectRepository(engine).create("My app", ORGANIZATION_ID, USER_ID)
+
+        self.assertEqual(project.public_id, "xyz5678")
+        self.assertEqual(create_project.await_count, 2)
+        self.assertEqual(
+            [call.kwargs["public_id"] for call in create_project.await_args_list],
+            ["abc1234", "xyz5678"],
+        )
 
     async def test_create_rejects_blank_name_without_writing(self) -> None:
         store = FakeProjectStore()

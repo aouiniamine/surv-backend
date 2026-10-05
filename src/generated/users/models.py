@@ -26,6 +26,7 @@ class Project:
     organization_id: uuid.UUID
     name: str
     created_at: datetime.datetime
+    public_id: str
 
 
 @dataclasses.dataclass()

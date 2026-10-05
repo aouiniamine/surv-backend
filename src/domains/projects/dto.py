@@ -15,4 +15,5 @@ class ProjectResponse(BaseModel):
     id: UUID
     organization_id: UUID
     name: str
+    public_id: str
     created_at: datetime

@@ -14,21 +14,31 @@ from generated.projects import models
 
 
 CREATE_PROJECT = """-- name: create_project \\:one
-INSERT INTO projects (organization_id, name)
-SELECT :p1, :p2
+INSERT INTO projects (organization_id, name, public_id)
+SELECT :p1, :p2, :p3
 WHERE EXISTS (
     SELECT 1
     FROM user_organization_relation
-    WHERE user_id = :p3
+    WHERE user_id = :p4
       AND organization_id = :p1
       AND role IN ('ADMIN', 'DEVELOPER')
 )
-RETURNING id, organization_id, name, created_at
+ON CONFLICT (public_id) DO NOTHING
+RETURNING id, organization_id, name, public_id, created_at
 """
 
 
+@dataclasses.dataclass()
+class CreateProjectRow:
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    name: str
+    public_id: str
+    created_at: datetime.datetime
+
+
 GET_PROJECT = """-- name: get_project \\:one
-SELECT p.id, p.organization_id, p.name, p.created_at, r.role
+SELECT p.id, p.organization_id, p.name, p.public_id, p.created_at, r.role
 FROM projects AS p
 LEFT JOIN user_organization_relation AS r
   ON r.organization_id = p.organization_id AND r.user_id = :p1
@@ -41,12 +51,13 @@ class GetProjectRow:
     id: uuid.UUID
     organization_id: uuid.UUID
     name: str
+    public_id: str
     created_at: datetime.datetime
     role: Optional[models.OrganizationRole]
 
 
 LIST_ORGANIZATION_PROJECTS = """-- name: list_organization_projects \\:many
-SELECT p.id, p.organization_id, p.name, p.created_at
+SELECT p.id, p.organization_id, p.name, p.public_id, p.created_at
 FROM projects AS p
 JOIN user_organization_relation AS r ON r.organization_id = p.organization_id
 WHERE p.organization_id = :p1
@@ -55,8 +66,17 @@ ORDER BY p.created_at DESC, p.id DESC
 """
 
 
+@dataclasses.dataclass()
+class ListOrganizationProjectsRow:
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    name: str
+    public_id: str
+    created_at: datetime.datetime
+
+
 LIST_PROJECTS_FOR_USER = """-- name: list_projects_for_user \\:many
-SELECT p.id, p.organization_id, p.name, p.created_at
+SELECT p.id, p.organization_id, p.name, p.public_id, p.created_at
 FROM projects AS p
 JOIN user_organization_relation AS r ON r.organization_id = p.organization_id
 WHERE r.user_id = :p1
@@ -64,19 +84,34 @@ ORDER BY p.created_at DESC, p.id DESC
 """
 
 
+@dataclasses.dataclass()
+class ListProjectsForUserRow:
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    name: str
+    public_id: str
+    created_at: datetime.datetime
+
+
 class AsyncQuerier:
     def __init__(self, conn: sqlalchemy.ext.asyncio.AsyncConnection):
         self._conn = conn
 
-    async def create_project(self, *, organization_id: uuid.UUID, name: str, user_id: uuid.UUID) -> Optional[models.Project]:
-        row = (await self._conn.execute(sqlalchemy.text(CREATE_PROJECT), {"p1": organization_id, "p2": name, "p3": user_id})).first()
+    async def create_project(self, *, organization_id: uuid.UUID, name: str, public_id: str, user_id: uuid.UUID) -> Optional[CreateProjectRow]:
+        row = (await self._conn.execute(sqlalchemy.text(CREATE_PROJECT), {
+            "p1": organization_id,
+            "p2": name,
+            "p3": public_id,
+            "p4": user_id,
+        })).first()
         if row is None:
             return None
-        return models.Project(
+        return CreateProjectRow(
             id=row[0],
             organization_id=row[1],
             name=row[2],
-            created_at=row[3],
+            public_id=row[3],
+            created_at=row[4],
         )
 
     async def get_project(self, *, user_id: uuid.UUID, id: uuid.UUID) -> Optional[GetProjectRow]:
@@ -87,26 +122,29 @@ class AsyncQuerier:
             id=row[0],
             organization_id=row[1],
             name=row[2],
-            created_at=row[3],
-            role=row[4],
+            public_id=row[3],
+            created_at=row[4],
+            role=row[5],
         )
 
-    async def list_organization_projects(self, *, organization_id: uuid.UUID, user_id: uuid.UUID) -> AsyncIterator[models.Project]:
+    async def list_organization_projects(self, *, organization_id: uuid.UUID, user_id: uuid.UUID) -> AsyncIterator[ListOrganizationProjectsRow]:
         result = await self._conn.stream(sqlalchemy.text(LIST_ORGANIZATION_PROJECTS), {"p1": organization_id, "p2": user_id})
         async for row in result:
-            yield models.Project(
+            yield ListOrganizationProjectsRow(
                 id=row[0],
                 organization_id=row[1],
                 name=row[2],
-                created_at=row[3],
+                public_id=row[3],
+                created_at=row[4],
             )
 
-    async def list_projects_for_user(self, *, user_id: uuid.UUID) -> AsyncIterator[models.Project]:
+    async def list_projects_for_user(self, *, user_id: uuid.UUID) -> AsyncIterator[ListProjectsForUserRow]:
         result = await self._conn.stream(sqlalchemy.text(LIST_PROJECTS_FOR_USER), {"p1": user_id})
         async for row in result:
-            yield models.Project(
+            yield ListProjectsForUserRow(
                 id=row[0],
                 organization_id=row[1],
                 name=row[2],
-                created_at=row[3],
+                public_id=row[3],
+                created_at=row[4],
             )
