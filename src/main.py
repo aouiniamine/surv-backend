@@ -2,11 +2,13 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from core.config import Settings
 from core.db import engine_lifespan
 from core.email import OtpMailer
 from core.redis import redis_lifespan
+from core.responses import ApiResponse, register_error_handlers, success
 from domains.auth.controller import router as auth_router
 from domains.auth.repo import AuthRepository
 from domains.auth.service import AuthService
@@ -43,14 +45,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 yield
 
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
+    origins = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
+    if origins:
+        app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["*"], allow_headers=["*"])
+    register_error_handlers(app)
     app.include_router(auth_router, prefix="/v1")
     app.include_router(users_router, prefix="/v1")
     app.include_router(organizations_router, prefix="/v1")
     app.include_router(projects_router, prefix="/v1")
 
     @app.get("/health", tags=["health"])
-    async def health() -> dict[str, str]:
-        return {"status": "ok"}
+    async def health() -> ApiResponse[dict[str, str]]:
+        return success({"status": "ok"}, "Service healthy")
 
     return app
 

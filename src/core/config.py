@@ -15,8 +15,9 @@ class Settings(BaseSettings):
     smtp_password: str = Field(..., min_length=1)
     smtp_from_email: str = Field(..., min_length=1)
     smtp_use_tls: bool = False
-    smtp_start_tls: bool = False
+    smtp_start_tls: bool = True
     jwt_secret_key: str = Field(..., min_length=32)
+    cors_origins: str = "*"
 
     @model_validator(mode="after")
     def validate_smtp_tls(self) -> "Settings":

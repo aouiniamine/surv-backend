@@ -6,7 +6,6 @@ from uuid import UUID
 from domains.projects.errors import InvalidProjectName, OrganizationUnavailable, ProjectNotFound
 from domains.projects.model import Project
 
-
 if TYPE_CHECKING:
     from domains.projects.repo import ProjectRepository
 
@@ -31,3 +30,6 @@ class ProjectService:
         if project is None:
             raise ProjectNotFound("Project not found")
         return project
+
+    async def list_for_user(self, user_id: UUID) -> list[Project]:
+        return await self._repo.list_for_user(user_id)

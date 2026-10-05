@@ -4,7 +4,12 @@ from unittest.mock import patch
 from uuid import UUID
 
 import jwt
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 
+from core.dependencies import get_auth_service
+from core.responses import register_error_handlers
+from domains.auth.controller import router as auth_router
 from domains.auth.errors import AccountExists, InvalidOtp, RegistrationNotValidated, Unauthorized
 from domains.auth.model import Registration
 from domains.auth.service import AuthService
@@ -24,6 +29,9 @@ class FakeAuthGateway:
 
     async def get_user_by_email(self, email: str) -> User | None:
         return self.user if self.user and self.user.email == email else None
+
+    async def get_user_by_id(self, user_id: UUID) -> User | None:
+        return self.user if self.user and self.user.id == user_id else None
 
     async def register(
         self, email: str, first_name: str, last_name: str, organization_name: str
@@ -84,11 +92,10 @@ class AuthServiceTests(unittest.IsolatedAsyncioTestCase):
                 await self.service.verify_registration(email, invalid_code)
         await self.service.verify_registration(email, code)
         self.assertIn(f"register:validated:{email}", self.redis.values)
-        registration = await self.service.complete_registration(
-            email, " Ada ", " Lovelace ", " My Org "
-        )
+        session = await self.service.complete_registration(email, " Ada ", " Lovelace ", " My Org ")
         self.assertEqual(self.repo.registration_args, (email, "Ada", "Lovelace", "My Org"))
-        self.assertEqual(registration.user.id.version, 7)
+        self.assertEqual(session.registration.user.id.version, 7)
+        self.assertEqual(await self.service.current_user_id(session.access_token), USER_ID)
         self.assertFalse(any(key.startswith("session:") for key in self.redis.values))
         with self.assertRaises(RegistrationNotValidated):
             await self.service.complete_registration(email, "Ada", "Lovelace", "My Org")
@@ -108,18 +115,14 @@ class AuthServiceTests(unittest.IsolatedAsyncioTestCase):
             await self.service.verify_registration("me@example.com", "111111")
         await self.service.verify_registration("me@example.com", "222222")
 
-    async def test_logged_in_user_cannot_start_another_registration(self) -> None:
-        token = self.service._new_token(USER_ID)
-        with self.assertRaises(AccountExists):
-            await self.service.start_registration("other@example.com", token)
-        self.assertEqual(self.mailer.sent, [])
-
     async def test_login_otp_returns_jwt_without_redis_session(self) -> None:
         self.repo.user = User(USER_ID, "me@example.com", "Ada", "Lovelace", NOW)
         await self.service.start_login("ME@example.com")
         _, code, purpose = self.mailer.sent[0]
         self.assertEqual(purpose, "login")
-        token = await self.service.verify_login("me@example.com", code)
+        authentication = await self.service.verify_login("me@example.com", code)
+        token = authentication.access_token
+        self.assertEqual(authentication.user, self.repo.user)
         self.assertNotIn("login:me@example.com", self.redis.values)
         with self.assertRaises(InvalidOtp):
             await self.service.verify_login("me@example.com", code)
@@ -128,6 +131,91 @@ class AuthServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(claims["sub"], str(USER_ID))
         self.assertEqual(claims["exp"] - claims["iat"], 3 * 24 * 60 * 60)
         self.assertFalse(any(key.startswith("session:") for key in self.redis.values))
+
+    async def test_refresh_returns_new_token_and_current_user(self) -> None:
+        self.repo.user = User(USER_ID, "me@example.com", "Ada", "Lovelace", NOW)
+        original = self.service._new_token(USER_ID)
+        refreshed = await self.service.refresh(original)
+        self.assertNotEqual(refreshed.access_token, original)
+        self.assertEqual(refreshed.user, self.repo.user)
+        self.assertEqual(await self.service.current_user_id(refreshed.access_token), USER_ID)
+        claims = jwt.decode(refreshed.access_token, JWT_SECRET, algorithms=["HS256"])
+        self.assertEqual(claims["exp"] - claims["iat"], 3 * 24 * 60 * 60)
+
+    async def test_refresh_rejects_invalid_token_and_deleted_user(self) -> None:
+        with self.assertRaises(Unauthorized):
+            await self.service.refresh(None)
+        with self.assertRaises(Unauthorized):
+            await self.service.refresh("invalid-token")
+        with self.assertRaises(Unauthorized):
+            await self.service.refresh(self.service._new_token(USER_ID))
+
+    async def test_login_and_refresh_http_responses_include_user(self) -> None:
+        self.repo.user = User(USER_ID, "me@example.com", "Ada", "Lovelace", NOW)
+        await self.service.start_login("me@example.com")
+        code = self.mailer.sent[0][1]
+        app = FastAPI()
+        register_error_handlers(app)
+        app.include_router(auth_router, prefix="/v1")
+        app.dependency_overrides[get_auth_service] = lambda: self.service
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            login = await client.post(
+                "/v1/auth/login/verify", json={"email": "me@example.com", "code": code}
+            )
+            self.assertEqual(login.status_code, 200)
+            self.assertEqual(login.json()["code"], "OK")
+            self.assertTrue(login.json()["success"])
+            login_body = login.json()["data"]
+            self.assertEqual(login_body["token_type"], "bearer")
+            self.assertEqual(login_body["user"]["id"], str(USER_ID))
+            self.assertEqual(login_body["user"]["email"], "me@example.com")
+
+            refreshed = await client.post(
+                "/v1/auth/refresh",
+                headers={"Authorization": f"Bearer {login_body['access_token']}"},
+            )
+            self.assertEqual(refreshed.status_code, 200)
+            self.assertEqual(refreshed.json()["data"]["user"], login_body["user"])
+            self.assertNotEqual(
+                refreshed.json()["data"]["access_token"], login_body["access_token"]
+            )
+            missing = await client.post("/v1/auth/refresh")
+            self.assertEqual(missing.status_code, 401)
+            self.assertEqual(missing.json()["code"], "UNAUTHORIZED")
+            self.assertFalse(missing.json()["success"])
+            invalid = await client.post("/v1/auth/login/verify", json={"email": "bad"})
+            self.assertEqual(invalid.status_code, 422)
+            self.assertEqual(invalid.json()["code"], "UNPROCESSABLE_ENTITY")
+            self.assertIsNone(invalid.json()["data"])
+            missing_route = await client.get("/v1/does-not-exist")
+            self.assertEqual(missing_route.status_code, 404)
+            self.assertEqual(missing_route.json()["code"], "NOT_FOUND")
+
+    async def test_registration_http_response_includes_token_and_user(self) -> None:
+        await self.service.start_registration("me@example.com")
+        code = self.mailer.sent[0][1]
+        await self.service.verify_registration("me@example.com", code)
+        app = FastAPI()
+        register_error_handlers(app)
+        app.include_router(auth_router, prefix="/v1")
+        app.dependency_overrides[get_auth_service] = lambda: self.service
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/v1/auth/register/complete",
+                json={
+                    "email": "me@example.com",
+                    "first_name": "Ada",
+                    "last_name": "Lovelace",
+                    "organization_name": "My Org",
+                },
+            )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["code"], "CREATED")
+        body = response.json()["data"]
+        self.assertEqual(body["token_type"], "bearer")
+        self.assertEqual(body["user"]["id"], str(USER_ID))
+        self.assertEqual(body["organization"]["id"], str(ORG_ID))
+        self.assertEqual(await self.service.current_user_id(body["access_token"]), USER_ID)
 
     async def test_invalid_expired_and_tampered_tokens_are_rejected(self) -> None:
         expired = jwt.encode(
@@ -140,8 +228,11 @@ class AuthServiceTests(unittest.IsolatedAsyncioTestCase):
             algorithm="HS256",
         )
         other_secret = jwt.encode(
-            {"sub": str(USER_ID), "iat": datetime.now(UTC),
-             "exp": datetime.now(UTC) + timedelta(minutes=15)},
+            {
+                "sub": str(USER_ID),
+                "iat": datetime.now(UTC),
+                "exp": datetime.now(UTC) + timedelta(minutes=15),
+            },
             "another-secret-key-with-at-least-32-characters",
             algorithm="HS256",
         )

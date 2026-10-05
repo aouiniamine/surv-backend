@@ -53,7 +53,7 @@ The API is at `http://localhost:8000`. Open `http://localhost:8000/docs` for req
 curl http://localhost:8000/healthz
 ```
 
-OTP messages go to the SMTP provider configured in `.env`. Registration and login OTPs each expire after 15 minutes. Requesting another OTP immediately replaces the previous code; there is currently no resend cooldown or invalid-attempt limit. Login verification returns a signed JWT bearer token valid for three days. Redis stores OTPs and registration validation markers, never JWTs. Registration does not issue a token.
+OTP messages go to the SMTP provider configured in `.env`. Registration and login OTPs each expire after 15 minutes. Requesting another OTP immediately replaces the previous code; there is currently no resend cooldown or invalid-attempt limit. Registration completion and login verification return a signed JWT bearer token valid for three days and the logged-in user's details. Redis stores OTPs and registration validation markers, never JWTs.
 
 ## Authentication routes
 
@@ -61,15 +61,20 @@ OTP messages go to the SMTP provider configured in `.env`. Registration and logi
 | --- | --- |
 | `POST /v1/auth/register/start` | Submit an email to receive a registration OTP. |
 | `POST /v1/auth/register/verify` | Submit the email and six-digit OTP; mark that email as validated in Redis. |
-| `POST /v1/auth/register/complete` | Submit the same email, first name, last name, and organization name. Creates the user and organization with an ADMIN membership. |
+| `POST /v1/auth/register/complete` | Submit the same email, first name, last name, and organization name. Creates the user and organization with an ADMIN membership, then returns an `access_token`, `user`, and `organization`. |
 | `POST /v1/auth/login/start` | Submit an existing account email to receive a login OTP. |
-| `POST /v1/auth/login/verify` | Submit the email and OTP; receive an `access_token` bearer token. |
+| `POST /v1/auth/login/verify` | Submit the email and OTP; receive an `access_token` bearer token and `user` details. |
+| `POST /v1/auth/refresh` | Send the current bearer token; receive a new `access_token` and current `user` details. |
 | `GET /v1/users/me` | Read the signed-in user. |
 | `GET /v1/organizations` | List the signed-in user's organizations and roles. |
+| `POST /v1/organizations` | Create an organization and add the signed-in user as its ADMIN. |
 | `POST /v1/projects` | Create a project with `organization_id` and `name`; requires organization membership. |
+| `GET /v1/projects` | List projects in the signed-in user's organizations. |
 | `GET /v1/projects/{project_id}` | Read a project in one of the signed-in user's organizations. |
 
 For a first registration, call the three `/register` routes in order using the same email in each request. Redis stores the OTP at `register:<email>` and, after verification, a 15-minute one-use marker at `register:validated:<email>`. Completion consumes the marker. To sign in, call the two `/login` routes, then send `Authorization: Bearer <access_token>` to protected routes. Protected routes verify the JWT signature and expiry and read the user ID from its `sub` claim. To sign out, the client discards its token; an issued token remains valid until its three-day expiry. No authentication cookies are set. The `/docs` UI supports the bearer token through its Authorize button.
+
+All JSON responses use `{ "success": boolean, "message": string, "data": value | null, "code": string }`. The `code` is the uppercase HTTP status name, such as `OK`, `CREATED`, or `UNAUTHORIZED`. Successful route data is in `data`; errors return `data: null`. Set `CORS_ORIGINS` to a comma-separated list of allowed browser origins when the client and API are served from different origins.
 
 The project table is created after the user and organization tables so its required `organization_id` foreign key can reference an organization. Members can create and read projects in their organizations; the API returns 404 for inaccessible projects.
 

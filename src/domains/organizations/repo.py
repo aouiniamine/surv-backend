@@ -24,6 +24,14 @@ class OrganizationRepository:
             user_id=user_id, organization_id=organization_id, role=GeneratedRole(role.value)
         )
 
+    async def create_for_user(self, name: str, user_id: UUID) -> UserOrganization:
+        async with self._engine.begin() as conn:
+            organization = await self.create(conn, name)
+            await self.add_member(conn, user_id, organization.id, OrganizationRole.ADMIN)
+        return UserOrganization(
+            organization.id, organization.name, OrganizationRole.ADMIN, organization.created_at
+        )
+
     async def list_for_user(self, user_id: UUID) -> list[UserOrganization]:
         async with self._engine.connect() as conn:
             rows = [

@@ -15,3 +15,10 @@ FROM projects AS p
 JOIN user_organization_relation AS r ON r.organization_id = p.organization_id
 WHERE p.id = sqlc.arg(id)
   AND r.user_id = sqlc.arg(user_id);
+
+-- name: ListProjectsForUser :many
+SELECT p.id, p.organization_id, p.name, p.created_at
+FROM projects AS p
+JOIN user_organization_relation AS r ON r.organization_id = p.organization_id
+WHERE r.user_id = sqlc.arg(user_id)
+ORDER BY p.created_at DESC, p.id DESC;

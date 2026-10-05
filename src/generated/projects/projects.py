@@ -2,7 +2,7 @@
 # versions:
 #   sqlc v1.31.1
 # source: projects.sql
-from typing import Optional
+from typing import AsyncIterator, Optional
 import uuid
 
 import sqlalchemy
@@ -33,6 +33,15 @@ WHERE p.id = :p1
 """
 
 
+LIST_PROJECTS_FOR_USER = """-- name: list_projects_for_user \\:many
+SELECT p.id, p.organization_id, p.name, p.created_at
+FROM projects AS p
+JOIN user_organization_relation AS r ON r.organization_id = p.organization_id
+WHERE r.user_id = :p1
+ORDER BY p.created_at DESC, p.id DESC
+"""
+
+
 class AsyncQuerier:
     def __init__(self, conn: sqlalchemy.ext.asyncio.AsyncConnection):
         self._conn = conn
@@ -58,3 +67,13 @@ class AsyncQuerier:
             name=row[2],
             created_at=row[3],
         )
+
+    async def list_projects_for_user(self, *, user_id: uuid.UUID) -> AsyncIterator[models.Project]:
+        result = await self._conn.stream(sqlalchemy.text(LIST_PROJECTS_FOR_USER), {"p1": user_id})
+        async for row in result:
+            yield models.Project(
+                id=row[0],
+                organization_id=row[1],
+                name=row[2],
+                created_at=row[3],
+            )

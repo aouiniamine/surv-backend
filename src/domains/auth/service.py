@@ -3,7 +3,7 @@ from __future__ import annotations
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import jwt
 from redis.asyncio import Redis
@@ -16,7 +16,7 @@ from domains.auth.errors import (
     RegistrationNotValidated,
     Unauthorized,
 )
-from domains.auth.model import Registration
+from domains.auth.model import Authentication, RegistrationSession
 
 if TYPE_CHECKING:
     from core.email import OtpMailer
@@ -54,9 +54,7 @@ class AuthService:
         otp_key = await self._validate_otp("register", email, code)
         if await self._redis.delete(otp_key) != 1:
             raise InvalidOtp("Invalid OTP")
-        await self._redis.set(
-            f"register:validated:{email}", "1", ex=self.OTP_TTL_SECONDS
-        )
+        await self._redis.set(f"register:validated:{email}", "1", ex=self.OTP_TTL_SECONDS)
 
     async def complete_registration(
         self,
@@ -64,7 +62,7 @@ class AuthService:
         first_name: str,
         last_name: str,
         organization_name: str,
-    ) -> Registration:
+    ) -> RegistrationSession:
         email = self._email(email)
         first_name = first_name.strip()
         last_name = last_name.strip()
@@ -73,7 +71,11 @@ class AuthService:
             raise InvalidProfileFields("Names and organization name cannot be blank")
         if await self._redis.getdel(f"register:validated:{email}") is None:
             raise RegistrationNotValidated("Registration verification expired or missing")
-        return await self._repo.register(email, first_name, last_name, organization_name)
+        registration = await self._repo.register(email, first_name, last_name, organization_name)
+        return RegistrationSession(
+            access_token=self._new_token(registration.user.id),
+            registration=registration,
+        )
 
     async def start_login(self, email: str) -> None:
         email = self._email(email)
@@ -81,7 +83,7 @@ class AuthService:
             raise AccountNotFound("Account not found")
         await self._send_code("login", email)
 
-    async def verify_login(self, email: str, code: str) -> str:
+    async def verify_login(self, email: str, code: str) -> Authentication:
         email = self._email(email)
         otp_key = await self._validate_otp("login", email, code)
         if await self._redis.delete(otp_key) != 1:
@@ -89,7 +91,14 @@ class AuthService:
         user = await self._repo.get_user_by_email(email)
         if user is None:
             raise AccountNotFound("Account not found")
-        return self._new_token(user.id)
+        return Authentication(access_token=self._new_token(user.id), user=user)
+
+    async def refresh(self, token: str | None) -> Authentication:
+        user_id = await self.current_user_id(token)
+        user = await self._repo.get_user_by_id(user_id)
+        if user is None:
+            raise Unauthorized("Account no longer exists")
+        return Authentication(access_token=self._new_token(user.id), user=user)
 
     async def current_user_id(self, token: str | None) -> UUID:
         if not token:
@@ -135,6 +144,7 @@ class AuthService:
         return jwt.encode(
             {
                 "sub": str(user_id),
+                "jti": str(uuid4()),
                 "iat": issued_at,
                 "exp": issued_at + timedelta(seconds=self.JWT_TTL_SECONDS),
             },

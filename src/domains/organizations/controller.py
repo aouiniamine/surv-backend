@@ -1,20 +1,37 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from core.dependencies import current_user_id, get_organization_service
-from domains.organizations.dto import OrganizationResponse
+from core.responses import ApiResponse, success
+from domains.organizations.dto import CreateOrganizationRequest, OrganizationResponse
+from domains.organizations.errors import InvalidOrganizationName
 from domains.organizations.service import OrganizationService
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
 
 
-@router.get("", response_model=list[OrganizationResponse])
+@router.post(
+    "", response_model=ApiResponse[OrganizationResponse], status_code=status.HTTP_201_CREATED
+)
+async def create_organization(
+    payload: CreateOrganizationRequest,
+    user_id: UUID = Depends(current_user_id),
+    service: OrganizationService = Depends(get_organization_service),
+) -> ApiResponse[OrganizationResponse]:
+    try:
+        organization = await service.create_for_user(payload.name, user_id)
+    except InvalidOrganizationName as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return success(OrganizationResponse.model_validate(organization), "Organization created", 201)
+
+
+@router.get("", response_model=ApiResponse[list[OrganizationResponse]])
 async def list_organizations(
     user_id: UUID = Depends(current_user_id),
     service: OrganizationService = Depends(get_organization_service),
-) -> list[OrganizationResponse]:
-    return [
-        OrganizationResponse.model_validate(item)
-        for item in await service.list_for_user(user_id)
+) -> ApiResponse[list[OrganizationResponse]]:
+    data = [
+        OrganizationResponse.model_validate(item) for item in await service.list_for_user(user_id)
     ]
+    return success(data, "Organizations loaded")

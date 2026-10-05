@@ -25,8 +25,11 @@ class MessageResponse(BaseModel):
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    user: UserResponse
 
 
 class RegistrationResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
     user: UserResponse
     organization: OrganizationResponse

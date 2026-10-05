@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -19,6 +21,9 @@ class AuthRepository:
 
     async def get_user_by_email(self, email: str) -> User | None:
         return await self._users.get_by_email(email)
+
+    async def get_user_by_id(self, user_id: UUID) -> User | None:
+        return await self._users.get_by_id(user_id)
 
     async def register(
         self, email: str, first_name: str, last_name: str, organization_name: str

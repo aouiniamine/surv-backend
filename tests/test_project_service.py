@@ -35,6 +35,9 @@ class FakeProjectStore:
             return self.project
         return None
 
+    async def list_for_user(self, user_id: UUID) -> list[Project]:
+        return [self.project] if self.project is not None and user_id == USER_ID else []
+
 
 class ProjectServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_create_normalizes_name_before_persisting(self) -> None:
@@ -52,7 +55,9 @@ class ProjectServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_create_requires_organization_membership(self) -> None:
         with self.assertRaises(OrganizationUnavailable):
-            await ProjectService(FakeProjectStore()).create("My app", ORGANIZATION_ID, OTHER_USER_ID)
+            await ProjectService(FakeProjectStore()).create(
+                "My app", ORGANIZATION_ID, OTHER_USER_ID
+            )
 
     async def test_get_reports_missing_project(self) -> None:
         with self.assertRaises(ProjectNotFound):
@@ -63,3 +68,9 @@ class ProjectServiceTests(unittest.IsolatedAsyncioTestCase):
         await ProjectService(store).create("My app", ORGANIZATION_ID, USER_ID)
         with self.assertRaises(ProjectNotFound):
             await ProjectService(store).get(PROJECT_ID, OTHER_USER_ID)
+
+    async def test_list_returns_only_members_projects(self) -> None:
+        store = FakeProjectStore()
+        await ProjectService(store).create("My app", ORGANIZATION_ID, USER_ID)
+        self.assertEqual(len(await ProjectService(store).list_for_user(USER_ID)), 1)
+        self.assertEqual(await ProjectService(store).list_for_user(OTHER_USER_ID), [])
