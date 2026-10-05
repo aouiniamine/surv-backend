@@ -1,7 +1,9 @@
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 from uuid import UUID
+
+import jwt
 
 from domains.auth.errors import AccountExists, InvalidOtp, RegistrationNotValidated, Unauthorized
 from domains.auth.model import Registration
@@ -12,6 +14,7 @@ from domains.users.model import User
 USER_ID = UUID("019535d9-3df7-79fb-b466-fa907fa17f9e")
 ORG_ID = UUID("019535d9-3df7-79fb-b466-fa907fa17f9f")
 NOW = datetime.now(UTC)
+JWT_SECRET = "test-secret-key-with-at-least-32-characters"
 
 
 class FakeAuthGateway:
@@ -40,21 +43,18 @@ class FakeRedis:
         self.values[key] = value
         return True
 
-    async def eval(self, script: str, key_count: int, key: str, code: str) -> int:
-        if self.values.get(key) != code:
-            return 0
-        self.values.pop(key)
-        return 900
-
     async def get(self, key: str) -> str | None:
         return self.values.get(key)
 
     async def getdel(self, key: str) -> str | None:
         return self.values.pop(key, None)
 
-    async def delete(self, *keys: str) -> None:
+    async def delete(self, *keys: str) -> int:
+        deleted = 0
         for key in keys:
-            self.values.pop(key, None)
+            if self.values.pop(key, None) is not None:
+                deleted += 1
+        return deleted
 
 
 class FakeMailer:
@@ -70,7 +70,7 @@ class AuthServiceTests(unittest.IsolatedAsyncioTestCase):
         self.repo = FakeAuthGateway()
         self.redis = FakeRedis()
         self.mailer = FakeMailer()
-        self.service = AuthService(self.repo, self.redis, self.mailer, 604800)
+        self.service = AuthService(self.repo, self.redis, self.mailer, JWT_SECRET)
 
     async def test_registration_requires_otp_then_creates_user_without_session(self) -> None:
         await self.service.start_registration("  ME@Example.COM ")
@@ -109,18 +109,54 @@ class AuthServiceTests(unittest.IsolatedAsyncioTestCase):
         await self.service.verify_registration("me@example.com", "222222")
 
     async def test_logged_in_user_cannot_start_another_registration(self) -> None:
-        self.redis.values[AuthService._session_key("active-token")] = str(USER_ID)
+        token = self.service._new_token(USER_ID)
         with self.assertRaises(AccountExists):
-            await self.service.start_registration("other@example.com", "active-token")
+            await self.service.start_registration("other@example.com", token)
         self.assertEqual(self.mailer.sent, [])
 
-    async def test_login_otp_creates_session(self) -> None:
+    async def test_login_otp_returns_jwt_without_redis_session(self) -> None:
         self.repo.user = User(USER_ID, "me@example.com", "Ada", "Lovelace", NOW)
         await self.service.start_login("ME@example.com")
         _, code, purpose = self.mailer.sent[0]
         self.assertEqual(purpose, "login")
-        session = await self.service.verify_login("me@example.com", code)
-        self.assertEqual(await self.service.current_user_id(session), USER_ID)
-        await self.service.logout(session)
-        with self.assertRaises(Unauthorized):
-            await self.service.current_user_id(session)
+        token = await self.service.verify_login("me@example.com", code)
+        self.assertNotIn("login:me@example.com", self.redis.values)
+        with self.assertRaises(InvalidOtp):
+            await self.service.verify_login("me@example.com", code)
+        self.assertEqual(await self.service.current_user_id(token), USER_ID)
+        claims = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        self.assertEqual(claims["sub"], str(USER_ID))
+        self.assertEqual(claims["exp"] - claims["iat"], 3 * 24 * 60 * 60)
+        self.assertFalse(any(key.startswith("session:") for key in self.redis.values))
+
+    async def test_invalid_expired_and_tampered_tokens_are_rejected(self) -> None:
+        expired = jwt.encode(
+            {
+                "sub": str(USER_ID),
+                "iat": datetime.now(UTC) - timedelta(minutes=20),
+                "exp": datetime.now(UTC) - timedelta(minutes=5),
+            },
+            JWT_SECRET,
+            algorithm="HS256",
+        )
+        other_secret = jwt.encode(
+            {"sub": str(USER_ID), "iat": datetime.now(UTC),
+             "exp": datetime.now(UTC) + timedelta(minutes=15)},
+            "another-secret-key-with-at-least-32-characters",
+            algorithm="HS256",
+        )
+        for token in (None, "not-a-jwt", expired, other_secret):
+            with self.subTest(token=token), self.assertRaises(Unauthorized):
+                await self.service.current_user_id(token)
+
+    async def test_login_requires_unexpired_key_and_matching_code(self) -> None:
+        self.repo.user = User(USER_ID, "me@example.com", "Ada", "Lovelace", NOW)
+        await self.service.start_login("me@example.com")
+        _, code, _ = self.mailer.sent[0]
+        wrong_code = "000000" if code != "000000" else "999999"
+        with self.assertRaises(InvalidOtp):
+            await self.service.verify_login("me@example.com", wrong_code)
+        self.assertEqual(self.redis.values["login:me@example.com"], code)
+        self.redis.values.pop("login:me@example.com")
+        with self.assertRaises(InvalidOtp):
+            await self.service.verify_login("me@example.com", code)

@@ -1,6 +1,6 @@
 # Surv backend architecture
 
-This document applies to `surv-backend/` only. Surv's backend is a FastAPI application organized by business domain. PostgreSQL 18 stores application data and generates UUIDv7 entity IDs. Each domain owns its SQL, `sqlc` generates typed async query methods, and repositories call those methods through SQLAlchemy's async Core connection with the `asyncpg` driver. SQLAlchemy is a connection and execution layer here; there are no ORM models. Redis holds short-lived OTP challenges and login sessions.
+This document applies to `surv-backend/` only. Surv's backend is a FastAPI application organized by business domain. PostgreSQL 18 stores application data and generates UUIDv7 entity IDs. Each domain owns its SQL, `sqlc` generates typed async query methods, and repositories call those methods through SQLAlchemy's async Core connection with the `asyncpg` driver. SQLAlchemy is a connection and execution layer here; there are no ORM models. Redis holds short-lived OTP challenges and registration validation markers. Authentication uses signed JWTs.
 
 ## Boundaries
 
@@ -18,7 +18,7 @@ Each domain contains:
 - `repo.py`: PostgreSQL interactions for that domain only.
 - `model.py` and `errors.py` where domain objects and failures are needed.
 
-Controllers do not issue queries. Services do not import FastAPI or generated database classes. Repositories translate generated rows into domain models. HTTP DTOs and generated row types do not cross into the service's business rules. `AuthService` receives the shared Redis client and owns OTP, registration marker, and login session behavior; `AuthRepository` accesses PostgreSQL only. See [AGENTS.md](AGENTS.md) for enforceable query and round-trip rules.
+Controllers do not issue queries. Services do not import FastAPI or generated database classes. Repositories translate generated rows into domain models. HTTP DTOs and generated row types do not cross into the service's business rules. `AuthService` receives the shared Redis client and owns OTP, registration marker, and JWT behavior; `AuthRepository` accesses PostgreSQL only. See [AGENTS.md](AGENTS.md) for enforceable query and round-trip rules.
 
 ## Current layout
 
@@ -71,7 +71,7 @@ The role enum is `ADMIN`, `DEVELOPER`, or `QA`. `user_organization_relation` has
 
 Project creation and reads require a user who belongs to the project's organization. The project SQL performs the membership check in the same query as the insert or read.
 
-Entity IDs are PostgreSQL UUIDv7 values created by `uuidv7()` and enforced by a version check. Redis session tokens are random bearer secrets, not entity IDs. PostgreSQL 18 is required for the migration functions.
+Entity IDs are PostgreSQL UUIDv7 values created by `uuidv7()` and enforced by a version check. JWTs contain the user ID in the signed `sub` claim and expire after three days. PostgreSQL 18 is required for the migration functions.
 
 ## Performance and correctness
 
@@ -80,7 +80,7 @@ Entity IDs are PostgreSQL UUIDv7 values created by `uuidv7()` and enforced by a 
 - Select the columns needed by the use case, avoid repeated per-row lookups, and use batch or joined queries when they reduce round trips without creating oversized result sets.
 - Prefer keyset pagination for large changing collections. Keep filter and cursor parameters explicit from DTO through SQL.
 - Enforce business invariants in services and critical uniqueness, checks, and foreign keys in PostgreSQL. Use one transaction for atomic multi-step writes.
-- Keep the Redis OTP, validation, and session keys private and short-lived. Never log OTPs or bearer tokens.
+- Keep Redis OTP and validation keys private and short-lived. Never store or log JWTs or OTPs.
 
 ## References
 

@@ -29,7 +29,7 @@ PostgreSQL **18** is required because the migrations use `uuidv7()` for entity I
    cp .env.example .env
    ```
 
-   Edit `.env` before starting the API. `DATABASE_URL` and `REDIS_URL` already match the local Compose services. Replace the SMTP placeholders with your provider's `SMTP_HOST`, `SMTP_PORT`, and `SMTP_FROM_EMAIL`. Set both `SMTP_USERNAME` and `SMTP_PASSWORD` if your SMTP server requires authentication; omit both for a relay that allows unauthenticated sending. Use `SMTP_START_TLS=true` for a STARTTLS endpoint (commonly port 587), or `SMTP_USE_TLS=true` for an implicit TLS endpoint (commonly port 465). Only one TLS mode may be enabled. `.env` is ignored by Git; keep credentials there, not in `.env.example`.
+   Edit `.env` before starting the API. `DATABASE_URL` and `REDIS_URL` already match the local Compose services. Replace `JWT_SECRET_KEY` with a random secret of at least 32 characters; keep the same value across API workers and restarts. Replace the SMTP placeholders with your provider's `SMTP_HOST`, `SMTP_PORT`, and `SMTP_FROM_EMAIL`. Set both `SMTP_USERNAME` and `SMTP_PASSWORD` if your SMTP server requires authentication; omit both for a relay that allows unauthenticated sending. Use `SMTP_START_TLS=true` for a STARTTLS endpoint (commonly port 587), or `SMTP_USE_TLS=true` for an implicit TLS endpoint (commonly port 465). Only one TLS mode may be enabled. `.env` is ignored by Git; keep credentials there, not in `.env.example`.
 
 3. Start PostgreSQL and Redis, then apply migrations:
 
@@ -53,7 +53,7 @@ The API is at `http://localhost:8000`. Open `http://localhost:8000/docs` for req
 curl http://localhost:8000/healthz
 ```
 
-OTP messages go to the SMTP provider configured in `.env`. Registration and login OTPs each expire after 15 minutes. Requesting another OTP immediately replaces the previous code; there is currently no resend cooldown or invalid-attempt limit. Login verification returns a bearer token backed by a Redis session. Registration does not create a session.
+OTP messages go to the SMTP provider configured in `.env`. Registration and login OTPs each expire after 15 minutes. Requesting another OTP immediately replaces the previous code; there is currently no resend cooldown or invalid-attempt limit. Login verification returns a signed JWT bearer token valid for three days. Redis stores OTPs and registration validation markers, never JWTs. Registration does not issue a token.
 
 ## Authentication routes
 
@@ -64,13 +64,12 @@ OTP messages go to the SMTP provider configured in `.env`. Registration and logi
 | `POST /v1/auth/register/complete` | Submit the same email, first name, last name, and organization name. Creates the user and organization with an ADMIN membership. |
 | `POST /v1/auth/login/start` | Submit an existing account email to receive a login OTP. |
 | `POST /v1/auth/login/verify` | Submit the email and OTP; receive an `access_token` bearer token. |
-| `POST /v1/auth/logout` | End the current session. |
 | `GET /v1/users/me` | Read the signed-in user. |
 | `GET /v1/organizations` | List the signed-in user's organizations and roles. |
 | `POST /v1/projects` | Create a project with `organization_id` and `name`; requires organization membership. |
 | `GET /v1/projects/{project_id}` | Read a project in one of the signed-in user's organizations. |
 
-For a first registration, call the three `/register` routes in order using the same email in each request. Redis stores the OTP at `register:<email>` and, after verification, a short-lived one-use marker at `register:validated:<email>`. Completion consumes the marker. To sign in, call the two `/login` routes, then send `Authorization: Bearer <access_token>` to protected routes and `/v1/auth/logout`. No authentication cookies are set. The `/docs` UI supports the bearer token through its Authorize button.
+For a first registration, call the three `/register` routes in order using the same email in each request. Redis stores the OTP at `register:<email>` and, after verification, a 15-minute one-use marker at `register:validated:<email>`. Completion consumes the marker. To sign in, call the two `/login` routes, then send `Authorization: Bearer <access_token>` to protected routes. Protected routes verify the JWT signature and expiry and read the user ID from its `sub` claim. To sign out, the client discards its token; an issued token remains valid until its three-day expiry. No authentication cookies are set. The `/docs` UI supports the bearer token through its Authorize button.
 
 The project table is created after the user and organization tables so its required `organization_id` foreign key can reference an organization. Members can create and read projects in their organizations; the API returns 404 for inaccessible projects.
 

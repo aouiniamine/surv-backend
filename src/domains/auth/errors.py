@@ -19,4 +19,4 @@ class InvalidProfileFields(ValueError):
 
 
 class Unauthorized(ValueError):
-    """The session is missing or expired."""
+    """The bearer token is missing or invalid."""

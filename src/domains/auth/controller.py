@@ -28,13 +28,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/register/start", response_model=MessageResponse)
 async def start_registration(
     payload: EmailRequest,
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     service: AuthService = Depends(get_auth_service),
 ) -> MessageResponse:
     try:
-        await service.start_registration(
-            str(payload.email), credentials.credentials if credentials else None
-        )
+        await service.start_registration(str(payload.email))
     except AccountExists as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return MessageResponse(message="Registration OTP sent")
@@ -100,18 +97,9 @@ async def verify_login(
     service: AuthService = Depends(get_auth_service),
 ) -> LoginResponse:
     try:
-        session_token = await service.verify_login(str(payload.email), payload.code)
+        access_token = await service.verify_login(str(payload.email), payload.code)
     except InvalidOtp as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except AccountNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return LoginResponse(access_token=session_token)
-
-
-@router.post("/logout", response_model=MessageResponse)
-async def logout(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-    service: AuthService = Depends(get_auth_service),
-) -> MessageResponse:
-    await service.logout(credentials.credentials if credentials else None)
-    return MessageResponse(message="Logged out")
+    return LoginResponse(access_token=access_token)

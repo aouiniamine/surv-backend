@@ -38,7 +38,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     AuthRepository(engine, user_repo, organization_repo),
                     redis,
                     OtpMailer(settings),
-                    settings.session_ttl_seconds,
+                    settings.jwt_secret_key,
                 )
                 yield
 
