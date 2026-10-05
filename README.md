@@ -81,3 +81,13 @@ docker compose ps
 ```
 
 Use `docker compose logs postgres redis` to inspect local service failures. `docker compose down` stops the services while retaining their data volumes. If PostgreSQL already has data from version 17, upgrade that database before using the PostgreSQL 18 image; a major-version image change does not upgrade an existing data volume.
+
+## Static application uploads
+
+Creating a project creates `./uploads/projects/<public_id>/public` (relative to the backend process directory). Set `PROJECT_UPLOADS_ROOT` to use a persistent shared volume in deployment. Admins and developers can replace a project's static site with `PUT /v1/projects/<public_id>/app`, using a bearer token and a raw `application/zip` request body. The ZIP must contain `index.html` at its root. The upload limit is 256 MiB compressed, 1 GiB extracted, and 10,000 entries. Extraction rejects traversal paths and symlinks and publishes only after validation succeeds.
+
+The site is public at `/app/<public_id>/`. Existing files and directory indexes are served directly; other paths fall back to the site's root `index.html` for client-side routing. Build applications with relative asset URLs or with `/app/<public_id>/` as their base path.
+
+For development path hosting, the server also maps root-relative references to uploaded static files in HTML, JavaScript, and CSS onto `/app/<public_id>/`. This lets builds that reference `/assets/...` load their files without a separate build base. Requests for missing files return 404 instead of the SPA page.
+
+Project responses include `app_url`. With `PROJECT_ENVIRONMENT=development` (or `dev` or `staging`), the URL uses the API request origin and `/app/<public_id>/`. With `PROJECT_ENVIRONMENT=production`, set `APPS_DOMAIN=example.com` (or `*.example.com`) to return `https://<public_id>.example.com/`. The upload response uses the same URL. Production routing and wildcard DNS/TLS must direct these hostnames to the uploaded app storage.

@@ -37,6 +37,25 @@ class CreateProjectRow:
     created_at: datetime.datetime
 
 
+GET_DEPLOYABLE_PROJECT = """-- name: get_deployable_project \\:one
+SELECT p.id, p.organization_id, p.name, p.public_id, p.created_at
+FROM projects AS p
+JOIN user_organization_relation AS r ON r.organization_id = p.organization_id
+WHERE p.public_id = :p1
+  AND r.user_id = :p2
+  AND r.role IN ('ADMIN', 'DEVELOPER')
+"""
+
+
+@dataclasses.dataclass()
+class GetDeployableProjectRow:
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    name: str
+    public_id: str
+    created_at: datetime.datetime
+
+
 GET_PROJECT = """-- name: get_project \\:one
 SELECT p.id, p.organization_id, p.name, p.public_id, p.created_at, r.role
 FROM projects AS p
@@ -107,6 +126,18 @@ class AsyncQuerier:
         if row is None:
             return None
         return CreateProjectRow(
+            id=row[0],
+            organization_id=row[1],
+            name=row[2],
+            public_id=row[3],
+            created_at=row[4],
+        )
+
+    async def get_deployable_project(self, *, public_id: str, user_id: uuid.UUID) -> Optional[GetDeployableProjectRow]:
+        row = (await self._conn.execute(sqlalchemy.text(GET_DEPLOYABLE_PROJECT), {"p1": public_id, "p2": user_id})).first()
+        if row is None:
+            return None
+        return GetDeployableProjectRow(
             id=row[0],
             organization_id=row[1],
             name=row[2],

@@ -21,3 +21,11 @@ class SettingsTests(unittest.TestCase):
         Settings(_env_file=None, **self.required)
         with self.assertRaises(ValidationError):
             Settings(_env_file=None, **(self.required | {"jwt_secret_key": "short"}))
+
+    def test_production_requires_apps_domain(self) -> None:
+        with self.assertRaises(ValidationError):
+            Settings(_env_file=None, **(self.required | {"project_environment": "production"}))
+        settings = Settings(_env_file=None, **(self.required | {
+            "project_environment": "production", "apps_domain": "*.example.com",
+        }))
+        self.assertEqual(settings.apps_domain, "example.com")

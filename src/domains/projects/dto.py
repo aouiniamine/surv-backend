@@ -1,7 +1,9 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
+
+from domains.projects.model import Project
 
 
 class CreateProjectRequest(BaseModel):
@@ -10,10 +12,20 @@ class CreateProjectRequest(BaseModel):
 
 
 class ProjectResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
     id: UUID
     organization_id: UUID
     name: str
     public_id: str
+    app_url: str
     created_at: datetime
+
+    @classmethod
+    def from_project(cls, project: Project, app_url: str) -> "ProjectResponse":
+        return cls(
+            id=project.id,
+            organization_id=project.organization_id,
+            name=project.name,
+            public_id=project.public_id,
+            app_url=app_url,
+            created_at=project.created_at,
+        )

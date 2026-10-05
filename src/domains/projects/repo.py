@@ -50,6 +50,15 @@ class ProjectRepository:
         )
         return project, OrganizationRole(row.role) if row.role is not None else None
 
+    async def get_deployable(self, public_id: str, user_id: UUID) -> Project | None:
+        async with self._engine.connect() as conn:
+            row = await AsyncQuerier(conn).get_deployable_project(
+                public_id=public_id, user_id=user_id
+            )
+        if row is None:
+            return None
+        return Project(row.id, row.organization_id, row.name, row.public_id, row.created_at)
+
     async def list_for_organization(self, organization_id: UUID, user_id: UUID) -> list[Project]:
         async with self._engine.connect() as conn:
             return [

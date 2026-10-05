@@ -13,15 +13,19 @@ from domains.projects.errors import (
     ProjectNotFound,
 )
 from domains.projects.model import Project
+from domains.projects.storage import ProjectStorage
 
 if TYPE_CHECKING:
     from domains.projects.repo import ProjectRepository
 
 
 class ProjectService:
-    def __init__(self, repo: ProjectRepository, organizations: OrganizationService) -> None:
+    def __init__(
+        self, repo: ProjectRepository, organizations: OrganizationService, storage: ProjectStorage
+    ) -> None:
         self._repo = repo
         self._organizations = organizations
+        self.storage = storage
 
     async def create(self, name: str, organization_id: UUID, user_id: UUID) -> Project:
         clean_name = name.strip()
@@ -38,6 +42,13 @@ class ProjectService:
         project = await self._repo.create(clean_name, organization_id, user_id)
         if project is None:
             raise ProjectAccessDenied("Insufficient organization access")
+        self.storage.ensure_public(project.public_id)
+        return project
+
+    async def require_deployable(self, public_id: str, user_id: UUID) -> Project:
+        project = await self._repo.get_deployable(public_id, user_id)
+        if project is None:
+            raise ProjectNotFound("Project not found or deployment access denied")
         return project
 
     async def get(self, project_id: UUID, user_id: UUID) -> Project:
