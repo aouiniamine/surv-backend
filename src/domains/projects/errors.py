@@ -8,3 +8,7 @@ class ProjectNotFound(LookupError):
 
 class OrganizationUnavailable(LookupError):
     """The organization does not exist or is not accessible to the user."""
+
+
+class ProjectAccessDenied(PermissionError):
+    """The user has insufficient priority in the project's organization."""

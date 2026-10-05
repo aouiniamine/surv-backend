@@ -26,6 +26,23 @@ RETURNING id, name, created_at
 """
 
 
+GET_ORGANIZATION_ACCESS = """-- name: get_organization_access \\:one
+SELECT o.id, o.name, o.created_at, r.role
+FROM organizations AS o
+LEFT JOIN user_organization_relation AS r
+  ON r.organization_id = o.id AND r.user_id = :p1
+WHERE o.id = :p2
+"""
+
+
+@dataclasses.dataclass()
+class GetOrganizationAccessRow:
+    id: uuid.UUID
+    name: str
+    created_at: datetime.datetime
+    role: Optional[models.OrganizationRole]
+
+
 LIST_USER_ORGANIZATIONS = """-- name: list_user_organizations \\:many
 SELECT o.id, o.name, o.created_at, r.role
 FROM organizations AS o
@@ -58,6 +75,17 @@ class AsyncQuerier:
             id=row[0],
             name=row[1],
             created_at=row[2],
+        )
+
+    async def get_organization_access(self, *, user_id: uuid.UUID, organization_id: uuid.UUID) -> Optional[GetOrganizationAccessRow]:
+        row = (await self._conn.execute(sqlalchemy.text(GET_ORGANIZATION_ACCESS), {"p1": user_id, "p2": organization_id})).first()
+        if row is None:
+            return None
+        return GetOrganizationAccessRow(
+            id=row[0],
+            name=row[1],
+            created_at=row[2],
+            role=row[3],
         )
 
     async def list_user_organizations(self, *, user_id: uuid.UUID) -> AsyncIterator[ListUserOrganizationsRow]:

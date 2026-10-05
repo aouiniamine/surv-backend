@@ -13,3 +13,10 @@ FROM organizations AS o
 JOIN user_organization_relation AS r ON r.organization_id = o.id
 WHERE r.user_id = sqlc.arg(user_id)
 ORDER BY o.created_at DESC, o.id DESC;
+
+-- name: GetOrganizationAccess :one
+SELECT o.id, o.name, o.created_at, r.role
+FROM organizations AS o
+LEFT JOIN user_organization_relation AS r
+  ON r.organization_id = o.id AND r.user_id = sqlc.arg(user_id)
+WHERE o.id = sqlc.arg(organization_id);

@@ -10,6 +10,13 @@ class OrganizationRole(StrEnum):
     QA = "QA"
 
 
+ROLE_PRIORITY: dict[OrganizationRole, int] = {
+    OrganizationRole.ADMIN: 999,
+    OrganizationRole.DEVELOPER: 777,
+    OrganizationRole.QA: 333,
+}
+
+
 @dataclass(frozen=True, slots=True)
 class Organization:
     id: UUID

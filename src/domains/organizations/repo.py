@@ -39,3 +39,15 @@ class OrganizationRepository:
                 async for row in AsyncQuerier(conn).list_user_organizations(user_id=user_id)
             ]
         return rows
+
+    async def get_access(
+        self, organization_id: UUID, user_id: UUID
+    ) -> tuple[Organization, OrganizationRole | None] | None:
+        async with self._engine.connect() as conn:
+            row = await AsyncQuerier(conn).get_organization_access(
+                organization_id=organization_id, user_id=user_id
+            )
+        if row is None:
+            return None
+        organization = Organization(row.id, row.name, row.created_at)
+        return organization, OrganizationRole(row.role) if row.role is not None else None

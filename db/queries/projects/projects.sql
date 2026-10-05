@@ -6,19 +6,28 @@ WHERE EXISTS (
     FROM user_organization_relation
     WHERE user_id = sqlc.arg(user_id)
       AND organization_id = sqlc.arg(organization_id)
+      AND role IN ('ADMIN', 'DEVELOPER')
 )
 RETURNING id, organization_id, name, created_at;
 
 -- name: GetProject :one
-SELECT p.id, p.organization_id, p.name, p.created_at
+SELECT p.id, p.organization_id, p.name, p.created_at, r.role
 FROM projects AS p
-JOIN user_organization_relation AS r ON r.organization_id = p.organization_id
-WHERE p.id = sqlc.arg(id)
-  AND r.user_id = sqlc.arg(user_id);
+LEFT JOIN user_organization_relation AS r
+  ON r.organization_id = p.organization_id AND r.user_id = sqlc.arg(user_id)
+WHERE p.id = sqlc.arg(id);
 
 -- name: ListProjectsForUser :many
 SELECT p.id, p.organization_id, p.name, p.created_at
 FROM projects AS p
 JOIN user_organization_relation AS r ON r.organization_id = p.organization_id
 WHERE r.user_id = sqlc.arg(user_id)
+ORDER BY p.created_at DESC, p.id DESC;
+
+-- name: ListOrganizationProjects :many
+SELECT p.id, p.organization_id, p.name, p.created_at
+FROM projects AS p
+JOIN user_organization_relation AS r ON r.organization_id = p.organization_id
+WHERE p.organization_id = sqlc.arg(organization_id)
+  AND r.user_id = sqlc.arg(user_id)
 ORDER BY p.created_at DESC, p.id DESC;

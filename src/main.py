@@ -32,10 +32,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             async with redis_lifespan(settings) as redis:
                 user_repo = UserRepository(engine)
                 organization_repo = OrganizationRepository(engine)
+                organization_service = OrganizationService(organization_repo)
                 app.state.settings = settings
-                app.state.project_service = ProjectService(ProjectRepository(engine))
+                app.state.project_service = ProjectService(
+                    ProjectRepository(engine), organization_service
+                )
                 app.state.user_service = UserService(user_repo)
-                app.state.organization_service = OrganizationService(organization_repo)
+                app.state.organization_service = organization_service
                 app.state.auth_service = AuthService(
                     AuthRepository(engine, user_repo, organization_repo),
                     redis,
@@ -47,7 +50,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
     origins = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
     if origins:
-        app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["*"], allow_headers=["*"])
+        app.add_middleware(
+            CORSMiddleware, allow_origins=origins, allow_methods=["*"], allow_headers=["*"]
+        )
     register_error_handlers(app)
     app.include_router(auth_router, prefix="/v1")
     app.include_router(users_router, prefix="/v1")

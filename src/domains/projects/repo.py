@@ -2,6 +2,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from domains.organizations.model import OrganizationRole
 from domains.projects.model import Project
 from generated.projects.projects import AsyncQuerier
 
@@ -24,17 +25,29 @@ class ProjectRepository:
             created_at=row.created_at,
         )
 
-    async def get(self, project_id: UUID, user_id: UUID) -> Project | None:
+    async def get(
+        self, project_id: UUID, user_id: UUID
+    ) -> tuple[Project, OrganizationRole | None] | None:
         async with self._engine.connect() as conn:
             row = await AsyncQuerier(conn).get_project(id=project_id, user_id=user_id)
         if row is None:
             return None
-        return Project(
+        project = Project(
             id=row.id,
             organization_id=row.organization_id,
             name=row.name,
             created_at=row.created_at,
         )
+        return project, OrganizationRole(row.role) if row.role is not None else None
+
+    async def list_for_organization(self, organization_id: UUID, user_id: UUID) -> list[Project]:
+        async with self._engine.connect() as conn:
+            return [
+                Project(row.id, row.organization_id, row.name, row.created_at)
+                async for row in AsyncQuerier(conn).list_organization_projects(
+                    organization_id=organization_id, user_id=user_id
+                )
+            ]
 
     async def list_for_user(self, user_id: UUID) -> list[Project]:
         async with self._engine.connect() as conn:

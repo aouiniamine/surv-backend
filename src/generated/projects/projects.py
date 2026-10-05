@@ -2,6 +2,8 @@
 # versions:
 #   sqlc v1.31.1
 # source: projects.sql
+import dataclasses
+import datetime
 from typing import AsyncIterator, Optional
 import uuid
 
@@ -19,17 +21,37 @@ WHERE EXISTS (
     FROM user_organization_relation
     WHERE user_id = :p3
       AND organization_id = :p1
+      AND role IN ('ADMIN', 'DEVELOPER')
 )
 RETURNING id, organization_id, name, created_at
 """
 
 
 GET_PROJECT = """-- name: get_project \\:one
+SELECT p.id, p.organization_id, p.name, p.created_at, r.role
+FROM projects AS p
+LEFT JOIN user_organization_relation AS r
+  ON r.organization_id = p.organization_id AND r.user_id = :p1
+WHERE p.id = :p2
+"""
+
+
+@dataclasses.dataclass()
+class GetProjectRow:
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    name: str
+    created_at: datetime.datetime
+    role: Optional[models.OrganizationRole]
+
+
+LIST_ORGANIZATION_PROJECTS = """-- name: list_organization_projects \\:many
 SELECT p.id, p.organization_id, p.name, p.created_at
 FROM projects AS p
 JOIN user_organization_relation AS r ON r.organization_id = p.organization_id
-WHERE p.id = :p1
+WHERE p.organization_id = :p1
   AND r.user_id = :p2
+ORDER BY p.created_at DESC, p.id DESC
 """
 
 
@@ -57,16 +79,27 @@ class AsyncQuerier:
             created_at=row[3],
         )
 
-    async def get_project(self, *, id: uuid.UUID, user_id: uuid.UUID) -> Optional[models.Project]:
-        row = (await self._conn.execute(sqlalchemy.text(GET_PROJECT), {"p1": id, "p2": user_id})).first()
+    async def get_project(self, *, user_id: uuid.UUID, id: uuid.UUID) -> Optional[GetProjectRow]:
+        row = (await self._conn.execute(sqlalchemy.text(GET_PROJECT), {"p1": user_id, "p2": id})).first()
         if row is None:
             return None
-        return models.Project(
+        return GetProjectRow(
             id=row[0],
             organization_id=row[1],
             name=row[2],
             created_at=row[3],
+            role=row[4],
         )
+
+    async def list_organization_projects(self, *, organization_id: uuid.UUID, user_id: uuid.UUID) -> AsyncIterator[models.Project]:
+        result = await self._conn.stream(sqlalchemy.text(LIST_ORGANIZATION_PROJECTS), {"p1": organization_id, "p2": user_id})
+        async for row in result:
+            yield models.Project(
+                id=row[0],
+                organization_id=row[1],
+                name=row[2],
+                created_at=row[3],
+            )
 
     async def list_projects_for_user(self, *, user_id: uuid.UUID) -> AsyncIterator[models.Project]:
         result = await self._conn.stream(sqlalchemy.text(LIST_PROJECTS_FOR_USER), {"p1": user_id})
