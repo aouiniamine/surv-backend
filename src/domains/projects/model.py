@@ -9,4 +9,12 @@ class Project:
     organization_id: UUID
     name: str
     public_id: str
+    status: str
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectBackup:
+    id: UUID
+    archive_path: str
     created_at: datetime

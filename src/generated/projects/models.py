@@ -27,6 +27,15 @@ class Project:
     name: str
     created_at: datetime.datetime
     public_id: str
+    status: str
+
+
+@dataclasses.dataclass()
+class ProjectBackup:
+    id: uuid.UUID
+    project_id: uuid.UUID
+    archive_path: str
+    created_at: datetime.datetime
 
 
 @dataclasses.dataclass()

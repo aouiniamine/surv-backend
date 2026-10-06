@@ -5,13 +5,15 @@ import stat
 import tempfile
 import uuid
 import zipfile
+from collections.abc import Awaitable, Callable
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO
 
 from starlette.requests import Request
 
 PUBLIC_ID_PATTERN = re.compile(r"^[a-z0-9]{7}$")
-MAX_ARCHIVE_BYTES = 256 * 1024 * 1024
+BACKUP_KEY_PATTERN = re.compile(r"^[0-9a-f]{32}$")
+MAX_ARCHIVE_BYTES = 20 * 1024 * 1024
 MAX_EXTRACTED_BYTES = 1024 * 1024 * 1024
 MAX_ENTRIES = 10_000
 CHUNK_BYTES = 1024 * 1024
@@ -39,7 +41,14 @@ class ProjectStorage:
     def ensure_public(self, public_id: str) -> None:
         (self.project_dir(public_id) / "public").mkdir(parents=True, exist_ok=True)
 
-    async def deploy(self, public_id: str, request: Request) -> None:
+    async def deploy(
+        self,
+        public_id: str,
+        request: Request,
+        record_deployment: Callable[[str | None], Awaitable[list[str]]],
+        *,
+        backup_previous: bool,
+    ) -> None:
         project_dir = self.project_dir(public_id)
         project_dir.mkdir(parents=True, exist_ok=True)
         archive_path: Path | None = None
@@ -52,37 +61,98 @@ class ProjectStorage:
                 async for chunk in request.stream():
                     received += len(chunk)
                     if received > MAX_ARCHIVE_BYTES:
-                        raise AppArchiveTooLarge("ZIP archive exceeds 256 MiB")
+                        raise AppArchiveTooLarge("ZIP archive exceeds 20 MiB")
                     await asyncio.to_thread(archive.write, chunk)
             if received == 0:
                 raise InvalidAppArchive("ZIP archive is empty")
-            await asyncio.to_thread(self._extract_and_publish, public_id, archive_path)
+            staging = await asyncio.to_thread(self._prepare, public_id, archive_path)
+            await self._publish_and_record(
+                public_id, archive_path, staging, record_deployment, backup_previous
+            )
         finally:
             if archive_path is not None:
                 archive_path.unlink(missing_ok=True)
 
-    def _extract_and_publish(self, public_id: str, archive_path: Path) -> None:
+    def _prepare(self, public_id: str, archive_path: Path) -> Path:
         project_dir = self.project_dir(public_id)
         staging = Path(tempfile.mkdtemp(prefix=".staging-", dir=project_dir))
-        public = project_dir / "public"
-        backup = project_dir / f".previous-{uuid.uuid4().hex}"
         try:
             self._extract(archive_path, staging)
             if not (staging / "index.html").is_file():
                 raise InvalidAppArchive("ZIP archive must contain index.html at its root")
+            return staging
+        except BaseException:
+            shutil.rmtree(staging)
+            raise
+
+    async def _publish_and_record(
+        self,
+        public_id: str,
+        archive_path: Path,
+        staging: Path,
+        record_deployment: Callable[[str | None], Awaitable[list[str]]],
+        backup_previous: bool,
+    ) -> None:
+        project_dir = self.project_dir(public_id)
+        public = project_dir / "public"
+        current_archive = project_dir / "current.zip"
+        previous_public = project_dir / f".previous-{uuid.uuid4().hex}"
+        backup_relative = Path("backups") / f"{uuid.uuid4().hex}.zip"
+        backup_public = project_dir / "backups" / backup_relative.stem / "public"
+        previous_archive = (
+            project_dir / backup_relative
+            if backup_previous
+            else project_dir / f".previous-{uuid.uuid4().hex}.zip"
+        )
+        expired_paths: list[str] = []
+        published = False
+        try:
+            if backup_previous:
+                if not current_archive.is_file():
+                    raise RuntimeError("Deployed project archive is missing")
+                if not public.is_dir():
+                    raise RuntimeError("Deployed project files are missing")
+                previous_archive.parent.mkdir(parents=True, exist_ok=True)
             if public.exists():
-                public.rename(backup)
+                public.rename(previous_public)
             try:
+                if current_archive.exists():
+                    current_archive.rename(previous_archive)
                 staging.rename(public)
-            except OSError:
-                if backup.exists():
-                    backup.rename(public)
-                raise
+                await asyncio.to_thread(shutil.copyfile, archive_path, current_archive)
+                if backup_previous:
+                    backup_public.parent.mkdir(parents=True, exist_ok=True)
+                    previous_public.rename(backup_public)
+                expired_paths = await record_deployment(
+                    backup_relative.as_posix() if backup_previous else None
+                )
+                published = True
+            finally:
+                if not published:
+                    if public.exists():
+                        shutil.rmtree(public)
+                    current_archive.unlink(missing_ok=True)
+                    if backup_public.exists():
+                        backup_public.rename(previous_public)
+                    if previous_public.exists():
+                        previous_public.rename(public)
+                    if previous_archive.exists():
+                        previous_archive.rename(current_archive)
+                    if backup_public.parent.exists():
+                        backup_public.parent.rmdir()
         finally:
             if staging.exists():
                 shutil.rmtree(staging)
-            if backup.exists() and public.exists():
-                shutil.rmtree(backup)
+            if published:
+                if previous_public.exists():
+                    shutil.rmtree(previous_public)
+                if not backup_previous:
+                    previous_archive.unlink(missing_ok=True)
+                for relative in expired_paths:
+                    path = Path(relative)
+                    if path.parent == Path("backups") and path.suffix == ".zip":
+                        (project_dir / path).unlink(missing_ok=True)
+                        shutil.rmtree(project_dir / "backups" / path.stem, ignore_errors=True)
 
     @staticmethod
     def _extract(archive_path: Path, staging: Path) -> None:
@@ -129,6 +199,32 @@ class ProjectStorage:
 
     def asset(self, public_id: str, request_path: str) -> Path | None:
         public = self.project_dir(public_id) / "public"
+        return self._asset_from_directory(public, request_path)
+
+    def backup_asset(self, public_id: str, backup_key: str, request_path: str) -> Path | None:
+        if not BACKUP_KEY_PATTERN.fullmatch(backup_key):
+            return None
+        project_dir = self.project_dir(public_id)
+        public = project_dir / "backups" / backup_key / "public"
+        archive = project_dir / "backups" / f"{backup_key}.zip"
+        if not public.is_dir() and archive.is_file():
+            public.parent.mkdir(parents=True, exist_ok=True)
+            staging = Path(tempfile.mkdtemp(prefix=".staging-", dir=public.parent))
+            try:
+                self._extract(archive, staging)
+                if not (staging / "index.html").is_file():
+                    return None
+                try:
+                    staging.rename(public)
+                except FileExistsError:
+                    pass
+            finally:
+                if staging.exists():
+                    shutil.rmtree(staging)
+        return self._asset_from_directory(public, request_path)
+
+    @staticmethod
+    def _asset_from_directory(public: Path, request_path: str) -> Path | None:
         if not public.is_dir():
             return None
         requested = PurePosixPath(request_path)
@@ -148,13 +244,28 @@ class ProjectStorage:
         return fallback if not requested.suffix and fallback.is_file() else None
 
     def rewritten_asset(self, public_id: str, asset: Path) -> bytes | None:
+        return self._rewritten_asset(
+            asset,
+            self.project_dir(public_id) / "public",
+            f"/app/{public_id}/".encode(),
+        )
+
+    def rewritten_backup_asset(self, public_id: str, backup_key: str, asset: Path) -> bytes | None:
+        if not BACKUP_KEY_PATTERN.fullmatch(backup_key):
+            return None
+        return self._rewritten_asset(
+            asset,
+            self.project_dir(public_id) / "backups" / backup_key / "public",
+            f"/app-backups/{public_id}/{backup_key}/".encode(),
+        )
+
+    @staticmethod
+    def _rewritten_asset(asset: Path, public: Path, prefix: bytes) -> bytes | None:
         if asset.suffix.lower() not in {".html", ".js", ".css"}:
             return None
         if asset.stat().st_size > MAX_REWRITE_BYTES:
             return None
         content = asset.read_bytes()
-        public = self.project_dir(public_id) / "public"
-        prefix = f"/app/{public_id}/".encode()
 
         def replace(match: re.Match[bytes]) -> bytes:
             relative_path = match.group("path").decode("ascii")

@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from starlette.requests import Request
+
 from domains.organizations.errors import OrganizationNotFound
 from domains.organizations.model import ROLE_PRIORITY, OrganizationRole
 from domains.organizations.service import OrganizationService
@@ -12,7 +14,7 @@ from domains.projects.errors import (
     ProjectAccessDenied,
     ProjectNotFound,
 )
-from domains.projects.model import Project
+from domains.projects.model import Project, ProjectBackup
 from domains.projects.storage import ProjectStorage
 
 if TYPE_CHECKING:
@@ -51,6 +53,15 @@ class ProjectService:
             raise ProjectNotFound("Project not found or deployment access denied")
         return project
 
+    async def deploy(self, public_id: str, user_id: UUID, request: Request) -> None:
+        project = await self.require_deployable(public_id, user_id)
+        await self.storage.deploy(
+            public_id,
+            request,
+            lambda previous: self._repo.record_deployment(project.id, previous),
+            backup_previous=project.status == "DEPLOYED",
+        )
+
     async def get(self, project_id: UUID, user_id: UUID) -> Project:
         access = await self._repo.get(project_id, user_id)
         if access is None:
@@ -66,3 +77,6 @@ class ProjectService:
 
     async def list_for_user(self, user_id: UUID) -> list[Project]:
         return await self._repo.list_for_user(user_id)
+
+    async def list_backups(self, project_id: UUID, user_id: UUID) -> list[ProjectBackup]:
+        return await self._repo.list_backups(project_id, user_id)

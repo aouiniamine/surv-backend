@@ -16,6 +16,7 @@ class ProjectResponse(BaseModel):
     organization_id: UUID
     name: str
     public_id: str
+    status: str
     app_url: str
     created_at: datetime
 
@@ -26,6 +27,13 @@ class ProjectResponse(BaseModel):
             organization_id=project.organization_id,
             name=project.name,
             public_id=project.public_id,
+            status=project.status,
             app_url=app_url,
             created_at=project.created_at,
         )
+
+
+class ProjectBackupResponse(BaseModel):
+    id: UUID
+    created_at: datetime
+    preview_url: str

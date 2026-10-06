@@ -24,7 +24,7 @@ WHERE EXISTS (
       AND role IN ('ADMIN', 'DEVELOPER')
 )
 ON CONFLICT (public_id) DO NOTHING
-RETURNING id, organization_id, name, public_id, created_at
+RETURNING id, organization_id, name, public_id, status, created_at
 """
 
 
@@ -34,11 +34,18 @@ class CreateProjectRow:
     organization_id: uuid.UUID
     name: str
     public_id: str
+    status: str
     created_at: datetime.datetime
 
 
+CREATE_PROJECT_BACKUP = """-- name: create_project_backup \\:exec
+INSERT INTO project_backup (project_id, archive_path)
+VALUES (:p1, :p2)
+"""
+
+
 GET_DEPLOYABLE_PROJECT = """-- name: get_deployable_project \\:one
-SELECT p.id, p.organization_id, p.name, p.public_id, p.created_at
+SELECT p.id, p.organization_id, p.name, p.public_id, p.status, p.created_at
 FROM projects AS p
 JOIN user_organization_relation AS r ON r.organization_id = p.organization_id
 WHERE p.public_id = :p1
@@ -53,11 +60,12 @@ class GetDeployableProjectRow:
     organization_id: uuid.UUID
     name: str
     public_id: str
+    status: str
     created_at: datetime.datetime
 
 
 GET_PROJECT = """-- name: get_project \\:one
-SELECT p.id, p.organization_id, p.name, p.public_id, p.created_at, r.role
+SELECT p.id, p.organization_id, p.name, p.public_id, p.status, p.created_at, r.role
 FROM projects AS p
 LEFT JOIN user_organization_relation AS r
   ON r.organization_id = p.organization_id AND r.user_id = :p1
@@ -71,12 +79,13 @@ class GetProjectRow:
     organization_id: uuid.UUID
     name: str
     public_id: str
+    status: str
     created_at: datetime.datetime
     role: Optional[models.OrganizationRole]
 
 
 LIST_ORGANIZATION_PROJECTS = """-- name: list_organization_projects \\:many
-SELECT p.id, p.organization_id, p.name, p.public_id, p.created_at
+SELECT p.id, p.organization_id, p.name, p.public_id, p.status, p.created_at
 FROM projects AS p
 JOIN user_organization_relation AS r ON r.organization_id = p.organization_id
 WHERE p.organization_id = :p1
@@ -91,11 +100,30 @@ class ListOrganizationProjectsRow:
     organization_id: uuid.UUID
     name: str
     public_id: str
+    status: str
+    created_at: datetime.datetime
+
+
+LIST_PROJECT_BACKUPS = """-- name: list_project_backups \\:many
+SELECT b.id, b.archive_path, b.created_at
+FROM project_backup AS b
+JOIN projects AS p ON p.id = b.project_id
+JOIN user_organization_relation AS r ON r.organization_id = p.organization_id
+WHERE p.id = :p1
+  AND r.user_id = :p2
+ORDER BY b.created_at DESC, b.id DESC
+"""
+
+
+@dataclasses.dataclass()
+class ListProjectBackupsRow:
+    id: uuid.UUID
+    archive_path: str
     created_at: datetime.datetime
 
 
 LIST_PROJECTS_FOR_USER = """-- name: list_projects_for_user \\:many
-SELECT p.id, p.organization_id, p.name, p.public_id, p.created_at
+SELECT p.id, p.organization_id, p.name, p.public_id, p.status, p.created_at
 FROM projects AS p
 JOIN user_organization_relation AS r ON r.organization_id = p.organization_id
 WHERE r.user_id = :p1
@@ -109,7 +137,26 @@ class ListProjectsForUserRow:
     organization_id: uuid.UUID
     name: str
     public_id: str
+    status: str
     created_at: datetime.datetime
+
+
+MARK_PROJECT_DEPLOYED = """-- name: mark_project_deployed \\:exec
+UPDATE projects SET status = 'DEPLOYED' WHERE id = :p1
+"""
+
+
+TRIM_PROJECT_BACKUPS = """-- name: trim_project_backups \\:many
+DELETE FROM project_backup AS old_backup
+WHERE old_backup.project_id = :p1
+  AND id NOT IN (
+      SELECT recent.id FROM project_backup AS recent
+      WHERE recent.project_id = :p1
+      ORDER BY recent.created_at DESC, recent.id DESC
+      LIMIT 3
+  )
+RETURNING old_backup.archive_path
+"""
 
 
 class AsyncQuerier:
@@ -130,8 +177,12 @@ class AsyncQuerier:
             organization_id=row[1],
             name=row[2],
             public_id=row[3],
-            created_at=row[4],
+            status=row[4],
+            created_at=row[5],
         )
+
+    async def create_project_backup(self, *, project_id: uuid.UUID, archive_path: str) -> None:
+        await self._conn.execute(sqlalchemy.text(CREATE_PROJECT_BACKUP), {"p1": project_id, "p2": archive_path})
 
     async def get_deployable_project(self, *, public_id: str, user_id: uuid.UUID) -> Optional[GetDeployableProjectRow]:
         row = (await self._conn.execute(sqlalchemy.text(GET_DEPLOYABLE_PROJECT), {"p1": public_id, "p2": user_id})).first()
@@ -142,7 +193,8 @@ class AsyncQuerier:
             organization_id=row[1],
             name=row[2],
             public_id=row[3],
-            created_at=row[4],
+            status=row[4],
+            created_at=row[5],
         )
 
     async def get_project(self, *, user_id: uuid.UUID, id: uuid.UUID) -> Optional[GetProjectRow]:
@@ -154,8 +206,9 @@ class AsyncQuerier:
             organization_id=row[1],
             name=row[2],
             public_id=row[3],
-            created_at=row[4],
-            role=row[5],
+            status=row[4],
+            created_at=row[5],
+            role=row[6],
         )
 
     async def list_organization_projects(self, *, organization_id: uuid.UUID, user_id: uuid.UUID) -> AsyncIterator[ListOrganizationProjectsRow]:
@@ -166,7 +219,17 @@ class AsyncQuerier:
                 organization_id=row[1],
                 name=row[2],
                 public_id=row[3],
-                created_at=row[4],
+                status=row[4],
+                created_at=row[5],
+            )
+
+    async def list_project_backups(self, *, project_id: uuid.UUID, user_id: uuid.UUID) -> AsyncIterator[ListProjectBackupsRow]:
+        result = await self._conn.stream(sqlalchemy.text(LIST_PROJECT_BACKUPS), {"p1": project_id, "p2": user_id})
+        async for row in result:
+            yield ListProjectBackupsRow(
+                id=row[0],
+                archive_path=row[1],
+                created_at=row[2],
             )
 
     async def list_projects_for_user(self, *, user_id: uuid.UUID) -> AsyncIterator[ListProjectsForUserRow]:
@@ -177,5 +240,14 @@ class AsyncQuerier:
                 organization_id=row[1],
                 name=row[2],
                 public_id=row[3],
-                created_at=row[4],
+                status=row[4],
+                created_at=row[5],
             )
+
+    async def mark_project_deployed(self, *, project_id: uuid.UUID) -> None:
+        await self._conn.execute(sqlalchemy.text(MARK_PROJECT_DEPLOYED), {"p1": project_id})
+
+    async def trim_project_backups(self, *, project_id: uuid.UUID) -> AsyncIterator[str]:
+        result = await self._conn.stream(sqlalchemy.text(TRIM_PROJECT_BACKUPS), {"p1": project_id})
+        async for row in result:
+            yield row[0]

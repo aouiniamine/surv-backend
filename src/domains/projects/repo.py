@@ -4,7 +4,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from domains.organizations.model import OrganizationRole
-from domains.projects.model import Project
+from domains.projects.model import Project, ProjectBackup
 from generated.projects.projects import AsyncQuerier
 
 PUBLIC_ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -21,7 +21,9 @@ class ProjectRepository:
             for _ in range(PUBLIC_ID_ATTEMPTS):
                 public_id = "".join(secrets.choice(PUBLIC_ID_ALPHABET) for _ in range(7))
                 row = await querier.create_project(
-                    name=name, organization_id=organization_id, user_id=user_id,
+                    name=name,
+                    organization_id=organization_id,
+                    user_id=user_id,
                     public_id=public_id,
                 )
                 if row is not None:
@@ -30,6 +32,7 @@ class ProjectRepository:
                         organization_id=row.organization_id,
                         name=row.name,
                         public_id=row.public_id,
+                        status=row.status,
                         created_at=row.created_at,
                     )
         return None
@@ -46,6 +49,7 @@ class ProjectRepository:
             organization_id=row.organization_id,
             name=row.name,
             public_id=row.public_id,
+            status=row.status,
             created_at=row.created_at,
         )
         return project, OrganizationRole(row.role) if row.role is not None else None
@@ -57,12 +61,16 @@ class ProjectRepository:
             )
         if row is None:
             return None
-        return Project(row.id, row.organization_id, row.name, row.public_id, row.created_at)
+        return Project(
+            row.id, row.organization_id, row.name, row.public_id, row.status, row.created_at
+        )
 
     async def list_for_organization(self, organization_id: UUID, user_id: UUID) -> list[Project]:
         async with self._engine.connect() as conn:
             return [
-                Project(row.id, row.organization_id, row.name, row.public_id, row.created_at)
+                Project(
+                    row.id, row.organization_id, row.name, row.public_id, row.status, row.created_at
+                )
                 async for row in AsyncQuerier(conn).list_organization_projects(
                     organization_id=organization_id, user_id=user_id
                 )
@@ -71,6 +79,33 @@ class ProjectRepository:
     async def list_for_user(self, user_id: UUID) -> list[Project]:
         async with self._engine.connect() as conn:
             return [
-                Project(row.id, row.organization_id, row.name, row.public_id, row.created_at)
+                Project(
+                    row.id, row.organization_id, row.name, row.public_id, row.status, row.created_at
+                )
                 async for row in AsyncQuerier(conn).list_projects_for_user(user_id=user_id)
+            ]
+
+    async def record_deployment(
+        self, project_id: UUID, previous_archive_path: str | None
+    ) -> list[str]:
+        async with self._engine.begin() as conn:
+            querier = AsyncQuerier(conn)
+            expired_paths: list[str] = []
+            if previous_archive_path is not None:
+                await querier.create_project_backup(
+                    project_id=project_id, archive_path=previous_archive_path
+                )
+                expired_paths = [
+                    path async for path in querier.trim_project_backups(project_id=project_id)
+                ]
+            await querier.mark_project_deployed(project_id=project_id)
+        return expired_paths
+
+    async def list_backups(self, project_id: UUID, user_id: UUID) -> list[ProjectBackup]:
+        async with self._engine.connect() as conn:
+            return [
+                ProjectBackup(row.id, row.archive_path, row.created_at)
+                async for row in AsyncQuerier(conn).list_project_backups(
+                    project_id=project_id, user_id=user_id
+                )
             ]

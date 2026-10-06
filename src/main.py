@@ -16,7 +16,7 @@ from domains.auth.service import AuthService
 from domains.organizations.controller import router as organizations_router
 from domains.organizations.repo import OrganizationRepository
 from domains.organizations.service import OrganizationService
-from domains.projects.controller import app_router
+from domains.projects.controller import app_router, backup_app_router
 from domains.projects.controller import router as projects_router
 from domains.projects.repo import ProjectRepository
 from domains.projects.service import ProjectService
@@ -65,6 +65,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(organizations_router, prefix="/v1")
     app.include_router(projects_router, prefix="/v1")
     app.include_router(app_router)
+    app.include_router(backup_app_router)
 
     @app.get("/health", tags=["health"])
     async def health() -> ApiResponse[dict[str, str]]:
