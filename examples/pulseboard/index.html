@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#111b22">
+    <title>Pulseboard — team overview</title>
+    <link rel="stylesheet" href="assets/style.css">
+    <script src="assets/app.js" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="./" aria-label="Pulseboard home"><span class="brand-icon">✳</span><span>pulse<span class="brand-light">board</span></span></a>
+        <p class="nav-label">WORKSPACE</p>
+        <nav aria-label="Main navigation">
+          <a class="nav-item active" href="#overview"><span>▦</span> Overview</a>
+          <a class="nav-item" href="#projects"><span>◫</span> Projects</a>
+          <a class="nav-item" href="#activity"><span>◷</span> Activity</a>
+        </nav>
+        <div class="sidebar-note"><span class="note-spark">✦</span><strong>Everything in motion.</strong><p>A tiny dashboard for testing Surv deployments.</p></div>
+        <div class="profile"><span class="avatar">AM</span><span><strong>Alex Morgan</strong><small>Workspace admin</small></span><span class="profile-dots">•••</span></div>
+      </aside>
+      <main id="overview" class="main-content">
+        <header class="topbar"><div><span class="eyebrow">YOUR WORKSPACE · TODAY</span><h1>Good morning, Alex <span class="wave">✳</span></h1><p>Here is what is happening across your workspace.</p></div><span class="live-badge"><i></i> All systems live</span></header>
+        <section class="overview-head" aria-label="Overview controls"><div><span class="eyebrow">AT A GLANCE</span><h2>Workspace overview</h2></div><div class="range-switch" role="group" aria-label="Date range"><button type="button" data-range="7" aria-pressed="true">7 days</button><button type="button" data-range="30" aria-pressed="false">30 days</button><button type="button" data-range="90" aria-pressed="false">90 days</button></div></section>
+        <section class="stats" aria-label="Key metrics"><article class="stat-card accent"><div class="stat-top"><span>Active projects</span><span class="stat-icon">▧</span></div><strong id="projects-value">12</strong><p><span id="projects-change">+2 this week</span> · moving forward</p></article><article class="stat-card"><div class="stat-top"><span>Tasks completed</span><span class="stat-icon violet">✓</span></div><strong id="tasks-value">84</strong><p><span id="tasks-change">+18%</span> from last period</p></article><article class="stat-card"><div class="stat-top"><span>Team velocity</span><span class="stat-icon peach">↗</span></div><strong id="velocity-value">92%</strong><p><span id="velocity-change">+6%</span> from last period</p></article></section>
+        <div class="content-grid"><section id="projects" class="panel"><div class="panel-heading"><div><span class="eyebrow">YOUR FOCUS</span><h2>Current projects</h2></div><span class="panel-count">3 in progress</span></div><div class="project-row"><span class="project-mark mint">N</span><div><strong>Northstar website</strong><small>Design system refresh</small></div><span class="project-progress">82%</span></div><div class="progress-track"><i style="width:82%"></i></div><div class="project-row"><span class="project-mark lavender">S</span><div><strong>Studio mobile</strong><small>Customer onboarding</small></div><span class="project-progress">64%</span></div><div class="progress-track"><i style="width:64%"></i></div><div class="project-row"><span class="project-mark coral">F</span><div><strong>Field notes</strong><small>Research and discovery</small></div><span class="project-progress">41%</span></div><div class="progress-track"><i style="width:41%"></i></div></section><section id="activity" class="panel activity-panel"><div class="panel-heading"><div><span class="eyebrow">LATEST UPDATES</span><h2>Team activity</h2></div></div><ol class="activity-list"><li><span class="activity-dot green"></span><div><strong>Website assets approved</strong><small>Northstar website · 12 min ago</small></div></li><li><span class="activity-dot purple"></span><div><strong>New prototype shared</strong><small>Studio mobile · 2 hours ago</small></div></li><li><span class="activity-dot orange"></span><div><strong>Research notes added</strong><small>Field notes · Yesterday</small></div></li></ol></section></div>
+        <footer>Pulseboard example app <span>Built for Surv hosting tests</span></footer>
+      </main>
+    </div>
+  </body>
+</html>

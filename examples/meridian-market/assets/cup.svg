@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 360" role="img" aria-label="Ceramic cup">
+  <ellipse cx="179" cy="290" rx="105" ry="18" fill="#aeb39f" opacity=".35"/>
+  <path d="M93 113h170l-16 128c-4 35-24 52-68 52s-63-17-68-52z" fill="#efe4cd"/>
+  <path d="M111 119h135l-12 117c-3 29-21 44-56 44-36 0-54-15-57-44z" fill="#f9f2df"/>
+  <ellipse cx="178" cy="115" rx="85" ry="20" fill="#e6d8bf"/><ellipse cx="178" cy="116" rx="70" ry="11" fill="#8f7158"/>
+  <path d="M261 137c53-2 58 33 45 64-9 24-28 34-51 29" fill="none" stroke="#efe4cd" stroke-width="22"/>
+  <path d="M140 166c-5 35-5 71 0 91" fill="none" stroke="#fff" stroke-width="10" opacity=".55"/>
+</svg>

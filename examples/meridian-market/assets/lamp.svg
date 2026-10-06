@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 360" role="img" aria-label="Desk lamp">
+  <ellipse cx="180" cy="303" rx="113" ry="19" fill="#a8a696" opacity=".35"/>
+  <path d="M115 130h130l-34-66H148z" fill="#c3ad8f"/><path d="M133 128h96l-20-54h-55z" fill="#e5d5b8"/>
+  <ellipse cx="180" cy="130" rx="65" ry="11" fill="#af9778"/><ellipse cx="180" cy="126" rx="49" ry="6" fill="#f2e2ad"/>
+  <path d="M179 137v143" stroke="#9c8768" stroke-width="11" stroke-linecap="round"/>
+  <path d="M113 290c4-22 25-29 67-29s63 7 67 29z" fill="#b49d7c"/><ellipse cx="180" cy="291" rx="70" ry="10" fill="#c6af8d"/>
+  <path d="M130 138l-19 70h138l-19-70" fill="#f7e7b5" opacity=".28"/>
+</svg>

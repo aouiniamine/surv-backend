@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 360" role="img" aria-label="Ceramic vase">
+  <ellipse cx="185" cy="313" rx="101" ry="22" fill="#b9b4a7" opacity=".35"/>
+  <path d="M174 65c-36-55-28-62-16-61 24 2 36 29 22 65" fill="#738b70"/>
+  <path d="M179 83c16-69 44-71 53-57 9 16-15 45-48 64" fill="#859c7a"/>
+  <path d="M165 90c-38-38-62-38-65-20-4 18 27 36 64 35" fill="#97a983"/>
+  <path d="M140 117h87v48c0 16 14 24 21 42 27 68-5 110-65 111-64 1-97-43-67-111 8-19 24-29 24-43z" fill="#d9c4a9"/>
+  <path d="M155 119h57v53c0 15 17 28 23 47 18 56-9 86-53 87-44 0-72-32-53-87 6-18 26-33 26-48z" fill="#f3e5d1"/>
+  <ellipse cx="183" cy="117" rx="44" ry="9" fill="#ba9f82"/><ellipse cx="183" cy="115" rx="32" ry="5" fill="#715c4e"/>
+  <path d="M169 176c-31 40-48 93-25 121" fill="none" stroke="#fff4e5" stroke-width="8" opacity=".45"/>
+</svg>

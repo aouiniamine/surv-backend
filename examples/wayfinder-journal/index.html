@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f1efe9">
+    <title>Wayfinder Journal — stories for the curious</title>
+    <style>
+      :root { font-family: Arial, Helvetica, sans-serif; color: #24332e; background: #f1efe9; }
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      body { margin: 0; }
+      button, input, textarea { font: inherit; }
+      button { cursor: pointer; }
+      a { color: inherit; text-decoration: none; }
+      .shell { display: grid; grid-template-columns: 230px minmax(0, 1fr); min-height: 100vh; }
+      .sidebar { display: flex; flex-direction: column; min-height: 100vh; padding: 32px 24px; border-right: 1px solid #deded6; background: #f8f7f2; }
+      .brand { display: flex; align-items: center; gap: 11px; font-family: Georgia, serif; font-size: 24px; font-weight: bold; letter-spacing: -.07em; }
+      .brand-mark { display: grid; place-items: center; width: 37px; height: 37px; border-radius: 50%; background: #3d604c; color: #fff; font-size: 21px; }
+      .side-label, .eyebrow { color: #879889; font-size: 10px; font-weight: 800; letter-spacing: .19em; }
+      .side-label { margin: 65px 10px 14px; }
+      .side-nav { display: grid; gap: 4px; }
+      .side-nav a { display: flex; align-items: center; gap: 12px; padding: 13px 11px; border-radius: 9px; color: #788b7e; font-size: 12px; font-weight: 700; }
+      .side-nav a.active, .side-nav a:hover { background: #e4ebdf; color: #335b42; }
+      .side-nav a span { font-size: 19px; }
+      .side-note { margin-top: auto; padding: 19px; border: 1px solid #d9e1d4; border-radius: 14px; background: #edf2e9; }
+      .side-note span { color: #6f9273; font-size: 26px; }
+      .side-note strong { display: block; margin-top: 15px; font-family: Georgia, serif; font-size: 16px; }
+      .side-note p { margin: 7px 0 0; color: #8a9a8c; font-size: 11px; line-height: 1.5; }
+      .side-foot { margin-top: 25px; color: #acb4a9; font-size: 10px; }
+      .main { min-width: 0; padding: 0 clamp(24px, 6vw, 80px) 50px; }
+      .topbar { display: flex; justify-content: space-between; align-items: center; min-height: 90px; border-bottom: 1px solid #dcdfd5; }
+      .topbar > span { color: #a0aa9e; font-size: 10px; font-weight: 700; letter-spacing: .1em; }
+      .topbar button { display: flex; align-items: center; gap: 7px; padding: 8px 0; border: 0; background: transparent; color: #4c7156; font-size: 11px; font-weight: 700; }
+      .page { max-width: 1100px; margin: 0 auto; }
+      .home-hero { display: grid; grid-template-columns: 1fr .9fr; align-items: center; gap: 30px; padding: 65px 0 60px; }
+      .home-hero h1, .article-header h1 { margin: 16px 0 17px; font-family: Georgia, serif; font-size: clamp(48px, 5vw, 80px); font-weight: 400; line-height: 1.04; letter-spacing: -.065em; }
+      .home-hero h1 em, .article-header h1 em { color: #789b79; font-weight: 400; }
+      .home-hero p { max-width: 390px; color: #7d8d80; font-size: 13px; line-height: 1.75; }
+      .hero-visual { position: relative; min-height: 325px; overflow: hidden; border-radius: 170px 170px 12px 12px; background: #d6e0cf; }
+      .hero-hill { position: absolute; bottom: -110px; width: 125%; height: 260px; border-radius: 50%; background: #8ba98a; }
+      .hero-hill.back { right: -45%; bottom: -75px; background: #a7bea4; }
+      .hero-sun { position: absolute; top: 48px; right: 70px; width: 80px; height: 80px; border-radius: 50%; background: #f9ecd1; }
+      .hero-path { position: absolute; z-index: 2; right: 5%; bottom: -50px; width: 45%; height: 175px; transform: rotate(-25deg); border-radius: 50%; background: #f4ead5; }
+      .hero-caption { position: absolute; z-index: 3; bottom: 23px; left: 23px; color: #fff; font-size: 10px; font-weight: 700; letter-spacing: .12em; }
+      .section-header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 25px; }
+      .section-header h2 { margin: 7px 0 0; font-family: Georgia, serif; font-size: 30px; font-weight: 400; letter-spacing: -.04em; }
+      .search { display: flex; align-items: center; gap: 10px; min-width: 230px; padding: 11px 13px; border: 1px solid #dbe1d7; border-radius: 9px; background: #f8f7f2; }
+      .search span { color: #8aa18b; font-size: 19px; }
+      .search input { width: 100%; border: 0; outline: 0; background: none; color: #24332e; font-size: 11px; }
+      .entry-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+      .entry-card { display: flex; flex-direction: column; min-width: 0; overflow: hidden; border: 1px solid #e0e3da; border-radius: 13px; background: #faf9f5; transition: transform .2s, box-shadow .2s; }
+      .entry-card:hover { transform: translateY(-4px); box-shadow: 0 15px 35px #1f38201b; }
+      .entry-image { position: relative; height: 182px; overflow: hidden; }
+      .entry-image::before { content: ""; position: absolute; width: 170px; height: 170px; border-radius: 50%; background: #f5ebd9; left: 25%; top: -70px; }
+      .entry-image::after { content: ""; position: absolute; width: 120%; height: 130px; border-radius: 50%; background: #779b83; bottom: -65px; left: -10%; }
+      .entry-image.coast { background: #d8e7e2; }
+      .entry-image.coast::after { background: #77a4a0; }
+      .entry-image.city { background: #e6ded5; }
+      .entry-image.city::before { border-radius: 6px; background: #c7af98; width: 82px; height: 160px; top: 47px; left: 28%; box-shadow: 100px -23px 0 #b59a82; }
+      .entry-image.city::after { background: #d2bea7; }
+      .entry-image.forest { background: #d7e1d0; }
+      .entry-image.forest::before { width: 65px; height: 180px; top: 30px; left: 43%; border-radius: 50% 50% 10% 10%; background: #66896c; box-shadow: -95px 24px 0 #8eaa8a, 95px 17px 0 #759777; }
+      .entry-image.forest::after { background: #abbf98; }
+      .entry-card-copy { flex: 1; padding: 23px 22px; }
+      .entry-card-copy small { color: #87a08b; font-size: 9px; font-weight: 800; letter-spacing: .15em; }
+      .entry-card-copy h3 { margin: 11px 0; font-family: Georgia, serif; font-size: 23px; font-weight: 400; line-height: 1.12; letter-spacing: -.03em; }
+      .entry-card-copy p { color: #8c9a8d; font-size: 11px; line-height: 1.6; }
+      .entry-card-foot { display: flex; justify-content: space-between; align-items: center; padding: 0 22px 19px; color: #8da08f; font-size: 10px; }
+      .entry-card-foot b { color: #64826b; font-size: 20px; font-weight: 400; }
+      .no-results { padding: 40px; color: #829484; text-align: center; }
+      .article-page { max-width: 780px; padding-top: 42px; }
+      .back-link { display: inline-block; margin-bottom: 30px; color: #6b8f73; font-size: 11px; font-weight: 700; }
+      .article-header { text-align: center; }
+      .article-header h1 { font-size: clamp(44px, 5vw, 70px); }
+      .article-header p { max-width: 500px; margin: 0 auto; color: #849286; font-size: 13px; line-height: 1.7; }
+      .article-meta { display: flex; justify-content: center; gap: 14px; margin: 25px 0 33px; color: #95a498; font-size: 10px; font-weight: 700; }
+      .article-banner { height: 320px; border-radius: 13px; }
+      .article-banner.coast { background: linear-gradient(160deg, #d8e7e2 35%, #82aeac 35%, #82aeac 58%, #e9e6d8 58%); }
+      .article-banner.city { background: linear-gradient(120deg, #e6ded5 25%, #c9b49e 25%, #c9b49e 50%, #a88f78 50%, #a88f78 70%, #e7d6bd 70%); }
+      .article-banner.forest { background: radial-gradient(circle at 35% 75%, #7a9e80 0 20%, transparent 21%), radial-gradient(circle at 70% 25%, #9eb99c 0 24%, transparent 25%), #d8e5cf; }
+      .article-body { max-width: 650px; margin: 46px auto; }
+      .article-body p { margin: 0 0 25px; color: #5e7063; font-family: Georgia, serif; font-size: 19px; line-height: 1.85; }
+      .article-body p:first-child::first-letter { float: left; padding-right: 8px; color: #577961; font-size: 62px; line-height: .9; }
+      .article-actions { display: flex; justify-content: space-between; gap: 20px; padding: 22px 0; border-top: 1px solid #dae0d6; }
+      .article-actions button { padding: 9px 13px; border: 1px solid #ccdbce; border-radius: 8px; background: #e4ecdf; color: #486f52; font-size: 11px; font-weight: 700; }
+      .article-actions button.saved { background: #3d604c; color: #fff; }
+      .scratchpad { margin-top: 65px; padding: 27px; border-radius: 13px; background: #e4ebdf; }
+      .scratchpad h2 { margin: 0; font-family: Georgia, serif; font-size: 24px; font-weight: 400; }
+      .scratchpad p { color: #819184; font-size: 11px; }
+      .scratchpad textarea { width: 100%; min-height: 110px; margin-top: 10px; padding: 13px; resize: vertical; border: 1px solid #cfddcc; border-radius: 8px; outline-color: #80a186; background: #f8faf5; color: #24332e; font-size: 12px; line-height: 1.5; }
+      .footer { display: flex; justify-content: space-between; gap: 20px; max-width: 1100px; margin: 70px auto 0; padding-top: 24px; border-top: 1px solid #d9dfd5; color: #a1ada2; font-size: 10px; }
+      @media (max-width: 1050px) { .shell { grid-template-columns: 190px minmax(0, 1fr); } .entry-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+      @media (max-width: 700px) { .shell { display: block; } .sidebar { min-height: 0; padding: 17px 24px; border-right: 0; border-bottom: 1px solid #deded6; } .side-label, .side-nav, .side-note, .side-foot { display: none; } .main { padding: 0 22px 34px; } .topbar { min-height: 70px; } .home-hero { grid-template-columns: 1fr; padding: 42px 0; } .hero-visual { min-height: 250px; } .entry-grid { grid-template-columns: 1fr; } .section-header { align-items: stretch; flex-direction: column; } .article-banner { height: 220px; } .footer { flex-direction: column; } }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar"><a id="home-brand" class="brand" href="./"><span class="brand-mark">⌁</span>wayfinder</a><p class="side-label">THE JOURNAL</p><nav class="side-nav" aria-label="Journal navigation"><a id="home-nav" href="./" class="active"><span>⌂</span> All stories</a><a href="#scratchpad"><span>✎</span> Scratchpad</a></nav><div class="side-note"><span>✳</span><strong>A little room to wander.</strong><p>Stories, places, and perspectives to return to.</p></div><div class="side-foot">WAYFINDER JOURNAL · EST. 2026</div></aside>
+      <div class="main"><header class="topbar"><span>ISSUE 01 / THE OPEN ROAD</span><button id="top-home" type="button">Explore stories <span aria-hidden="true">↗</span></button></header><main id="page" class="page"></main><footer class="footer"><span>Wayfinder Journal example app</span><span>Made for Surv hosting tests</span></footer></div>
+    </div>
+    <script>
+      const entries = [
+        { slug: "coastal-light", label: "PLACES · 5 MIN READ", title: "Where the coast meets the light", teaser: "A morning spent following the tide, with nowhere in particular to be.", style: "coast", date: "October 4, 2026", paragraphs: ["There is a moment just before the town wakes when the whole coast seems to belong to the light. The sea is quiet, the streets are still, and the air carries that small promise of a day not yet decided.", "We followed the path without a map. It curved past old stone walls, down to a sheltered cove, then up again toward a view that made every early step worthwhile.", "The best journeys are sometimes the ones we leave unfinished. They give us a reason to return."] },
+        { slug: "city-in-between", label: "CULTURE · 4 MIN READ", title: "The city in between", teaser: "Finding the overlooked corners that make a place feel like home.", style: "city", date: "October 2, 2026", paragraphs: ["A city is more than the streets you can name. It is the bakery that opens before sunrise, the courtyard hidden behind an ordinary door, the familiar wave from a stranger you see each morning.", "We went looking for those quieter landmarks. They were not marked on any map, but each one held a small story of its own.", "Sometimes belonging begins with simply paying attention."] },
+        { slug: "green-hours", label: "NATURE · 6 MIN READ", title: "The green hours", teaser: "On slowing down enough to notice what the forest has to say.", style: "forest", date: "September 28, 2026", paragraphs: ["The trail was soft underfoot, and the trees made a room of the morning. We walked slowly, letting the usual rush fall behind us.", "Every turn offered a new shade of green. There was no destination to reach, only the pleasure of being present for a little while.", "We came home carrying nothing but a calmer pace."] },
+      ];
+      const page = document.getElementById("page");
+      const routePrefix = location.pathname.match(/^\/app\/[a-z0-9]{7}\/|^\/app-backups\/[a-z0-9]{7}\/[0-9a-f]{32}\//)?.[0] ?? "/";
+      const saved = new Set();
+      const routeFor = (slug) => `${routePrefix}entry/${slug}`;
+      const currentSlug = () => location.pathname.slice(routePrefix.length).match(/^entry\/([^/]+)\/?$/)?.[1];
+      function goHome() { history.pushState({}, "", routePrefix); render(); scrollTo(0, 0); }
+      function openEntry(slug) { history.pushState({}, "", routeFor(slug)); render(); scrollTo(0, 0); }
+      function renderHome() {
+        page.innerHTML = `<section class="home-hero"><div><span class="eyebrow">STORIES FOR THE CURIOUS</span><h1>Go further.<br><em>Look closer.</em></h1><p>A small collection of stories about places, people, and the good things we find along the way.</p></div><div class="hero-visual" aria-hidden="true"><div class="hero-sun"></div><div class="hero-hill back"></div><div class="hero-hill"></div><div class="hero-path"></div><span class="hero-caption">THE ROAD IS OPEN</span></div></section><section aria-labelledby="latest-title"><div class="section-header"><div><span class="eyebrow">ISSUE 01 · THE OPEN ROAD</span><h2 id="latest-title">Latest stories</h2></div><label class="search"><span aria-hidden="true">⌕</span><input id="story-search" type="search" placeholder="Find a story" aria-label="Search stories"></label></div><div id="entry-grid" class="entry-grid"></div><p id="no-results" class="no-results" hidden>No stories match your search.</p></section><section id="scratchpad" class="scratchpad"><h2>Your scratchpad</h2><p>Capture a thought while you browse. In a regular browser tab, it stays on this device.</p><textarea id="notes" aria-label="Your scratchpad" placeholder="A place to begin..."></textarea></section>`;
+        const search = document.getElementById("story-search");
+        const grid = document.getElementById("entry-grid");
+        function showEntries() {
+          const query = search.value.trim().toLowerCase();
+          const matches = entries.filter((entry) => `${entry.title} ${entry.label} ${entry.teaser}`.toLowerCase().includes(query));
+          grid.innerHTML = matches.map((entry) => `<a class="entry-card" href="${routeFor(entry.slug)}" data-entry="${entry.slug}"><div class="entry-image ${entry.style}" aria-hidden="true"></div><div class="entry-card-copy"><small>${entry.label}</small><h3>${entry.title}</h3><p>${entry.teaser}</p></div><div class="entry-card-foot"><span>${entry.date}</span><b aria-hidden="true">↗</b></div></a>`).join("");
+          document.getElementById("no-results").hidden = matches.length > 0;
+          grid.querySelectorAll("[data-entry]").forEach((link) => link.addEventListener("click", (event) => { event.preventDefault(); openEntry(link.dataset.entry); }));
+        }
+        search.addEventListener("input", showEntries);
+        showEntries();
+        const notes = document.getElementById("notes");
+        try { notes.value = localStorage.getItem("wayfinder-notes") ?? ""; } catch { /* Sandboxed previews may not expose storage. */ }
+        notes.addEventListener("input", () => { try { localStorage.setItem("wayfinder-notes", notes.value); } catch { /* Keep the current text visible. */ } });
+      }
+      function renderArticle(entry) {
+        page.innerHTML = `<article class="article-page"><a class="back-link" href="${routePrefix}" id="article-back">← All stories</a><header class="article-header"><span class="eyebrow">${entry.label}</span><h1>${entry.title}</h1><p>${entry.teaser}</p><div class="article-meta"><span>${entry.date}</span><span>·</span><span>WAYFINDER JOURNAL</span></div></header><div class="article-banner ${entry.style}" role="img" aria-label="Abstract landscape illustration"></div><div class="article-body">${entry.paragraphs.map((paragraph) => `<p>${paragraph}</p>`).join("")}</div><div class="article-actions"><a class="back-link" href="${routePrefix}" id="article-end-back">← Back to all stories</a><button id="save-entry" class="${saved.has(entry.slug) ? "saved" : ""}" type="button">${saved.has(entry.slug) ? "Saved to favorites" : "Save story"}</button></div></article>`;
+        ["article-back", "article-end-back"].forEach((id) => document.getElementById(id).addEventListener("click", (event) => { event.preventDefault(); goHome(); }));
+        document.getElementById("save-entry").addEventListener("click", (event) => { if (saved.has(entry.slug)) saved.delete(entry.slug); else saved.add(entry.slug); event.currentTarget.classList.toggle("saved", saved.has(entry.slug)); event.currentTarget.textContent = saved.has(entry.slug) ? "Saved to favorites" : "Save story"; });
+      }
+      function render() {
+        const entry = entries.find((item) => item.slug === currentSlug());
+        if (entry) renderArticle(entry); else renderHome();
+        document.getElementById("home-nav").classList.toggle("active", !entry);
+        document.title = entry ? `${entry.title} — Wayfinder Journal` : "Wayfinder Journal — stories for the curious";
+      }
+      document.getElementById("home-brand").href = routePrefix;
+      document.getElementById("home-nav").href = routePrefix;
+      document.getElementById("home-brand").addEventListener("click", (event) => { event.preventDefault(); goHome(); });
+      document.getElementById("home-nav").addEventListener("click", (event) => { event.preventDefault(); goHome(); });
+      document.getElementById("top-home").addEventListener("click", goHome);
+      addEventListener("popstate", render);
+      render();
+    </script>
+  </body>
+</html>

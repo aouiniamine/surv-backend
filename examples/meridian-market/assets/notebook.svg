@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 360" role="img" aria-label="Notebook">
+  <ellipse cx="184" cy="298" rx="111" ry="20" fill="#aaa99c" opacity=".3"/>
+  <g transform="rotate(-12 180 180)"><rect x="94" y="54" width="180" height="248" rx="9" fill="#8a9480"/><rect x="106" y="57" width="168" height="245" rx="7" fill="#aeb9a1"/><path d="M118 57v245" stroke="#67765f" stroke-width="10"/><path d="M149 113h91M149 139h75M149 165h86" stroke="#d9dfcb" stroke-width="4" stroke-linecap="round"/><circle cx="193" cy="236" r="25" fill="none" stroke="#d6dfc8" stroke-width="4"/><path d="M193 212v47M169 236h47" stroke="#d6dfc8" stroke-width="3"/></g>
+</svg>
