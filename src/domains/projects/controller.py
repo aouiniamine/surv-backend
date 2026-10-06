@@ -32,6 +32,13 @@ def project_app_url(request: Request, public_id: str) -> str:
     return f"{str(request.base_url).rstrip('/')}/app/{public_id}/"
 
 
+def project_backup_url(request: Request, public_id: str, backup_key: str) -> str:
+    settings = request.app.state.settings
+    if settings.project_environment == "production":
+        return f"https://{public_id}-{backup_key}.{settings.apps_domain}/"
+    return f"{str(request.base_url).rstrip('/')}/app-backups/{public_id}/{backup_key}/"
+
+
 def project_response(project: Project, request: Request) -> ProjectResponse:
     return ProjectResponse.from_project(project, project_app_url(request, project.public_id))
 
@@ -111,15 +118,13 @@ async def list_project_backups(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ProjectAccessDenied as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
-    base_url = str(request.base_url).rstrip("/")
     return success(
         [
             ProjectBackupResponse(
                 id=backup.id,
                 created_at=backup.created_at,
-                preview_url=(
-                    f"{base_url}/app-backups/{project.public_id}/"
-                    f"{Path(backup.archive_path).stem}/"
+                preview_url=project_backup_url(
+                    request, project.public_id, Path(backup.archive_path).stem
                 ),
             )
             for backup in backups

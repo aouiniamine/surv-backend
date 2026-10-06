@@ -1,6 +1,6 @@
 # Surv example apps
 
-Each folder is a ready-to-upload static application. Create a Surv project for each example, then select the **folder itself** in the console's **Upload build** dialog. No package installation or build step is required.
+Each folder is a ready-to-upload static application. Create a Surv project for each example, then select or drag the **folder itself** into the console's **Surv new build** dialog. No package installation or build step is required.
 
 | Folder | What it exercises | Quick check |
 | --- | --- | --- |
@@ -8,7 +8,7 @@ Each folder is a ready-to-upload static application. Create a Surv project for e
 | `meridian-market/` | Root-relative `/assets/...` references in HTML and JavaScript | Filter products, search, and add an item to the bag. |
 | `wayfinder-journal/` | Client-side navigation and SPA fallback on deep links | Open an entry, then refresh its `/entry/...` URL. |
 
-To test deployment backups, upload any example, change a visible heading in its `index.html`, and upload the folder again. The previous version should appear on the project's backup gallery. Repeat to confirm that only the three most recent backups remain.
+To test deployment backups, upload any example, change a visible heading in its `index.html`, and upload the folder again. The previous version should appear in the project's backup gallery and open in a new window. Repeat to confirm that only the three most recent backups remain.
 
 To upload with the API, ZIP the **contents** of a folder so `index.html` is at the archive root. For example:
 

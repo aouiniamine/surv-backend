@@ -245,6 +245,46 @@ class ProjectServiceTests(unittest.IsolatedAsyncioTestCase):
                 detail = await client.get(f"/v1/projects/{PROJECT_ID}")
                 self.assertEqual(detail.json()["data"]["status"], "DEPLOYED")
 
+    async def test_backup_preview_urls_use_environment_hosting(self) -> None:
+        for environment, domain in (
+            ("development", None),
+            ("production", "*.example.com"),
+        ):
+            with self.subTest(environment=environment), TemporaryDirectory() as root:
+                storage = ProjectStorage(Path(root))
+                store = FakeProjectStore()
+                service = ProjectService(store, FakeOrganizationAccess(), storage)
+                project = await service.create("My app", ORGANIZATION_ID, USER_ID)
+                app = create_app(Settings(
+                    project_uploads_root=root,
+                    project_environment=environment,
+                    apps_domain=domain,
+                ))
+                app.dependency_overrides[current_user_id] = lambda: USER_ID
+                app.dependency_overrides[get_project_service] = lambda: service
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    for version in ("first", "second"):
+                        output = BytesIO()
+                        with zipfile.ZipFile(output, "w") as archive:
+                            archive.writestr("index.html", version)
+                        response = await client.put(
+                            f"/v1/projects/{project.public_id}/app",
+                            content=output.getvalue(),
+                            headers={"content-type": "application/zip"},
+                        )
+                        self.assertEqual(response.status_code, 200)
+                    response = await client.get(f"/v1/projects/{project.id}/backups")
+                    self.assertEqual(response.status_code, 200)
+                    backup_key = Path(store.backups[0]).stem
+                    expected_url = (
+                        f"https://{project.public_id}-{backup_key}.example.com/"
+                        if environment == "production"
+                        else f"http://test/app-backups/{project.public_id}/{backup_key}/"
+                    )
+                    self.assertEqual(response.json()["data"][0]["preview_url"], expected_url)
+
     async def test_unauthorized_project_requests_return_403_envelope(self) -> None:
         store = FakeProjectStore(OrganizationRole.QA)
         await self.project_service(store, FakeOrganizationAccess()).create(

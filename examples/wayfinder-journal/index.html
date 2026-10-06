@@ -96,7 +96,7 @@
   </head>
   <body>
     <div class="shell">
-      <aside class="sidebar"><a id="home-brand" class="brand" href="./"><span class="brand-mark">⌁</span>wayfinder</a><p class="side-label">THE JOURNAL</p><nav class="side-nav" aria-label="Journal navigation"><a id="home-nav" href="./" class="active"><span>⌂</span> All stories</a><a href="#scratchpad"><span>✎</span> Scratchpad</a></nav><div class="side-note"><span>✳</span><strong>A little room to wander.</strong><p>Stories, places, and perspectives to return to.</p></div><div class="side-foot">WAYFINDER JOURNAL · EST. 2026</div></aside>
+      <aside class="sidebar"><a id="home-brand" class="brand" href="./"><span class="brand-mark">⌁</span>wayfinder</a><p class="side-label">THE JOURNAL</p><nav class="side-nav" aria-label="Journal navigation"><a id="home-nav" href="./" class="active"><span>⌂</span> All stories</a><a id="scratchpad-nav" href="#scratchpad"><span>✎</span> Scratchpad</a></nav><div class="side-note"><span>✳</span><strong>A little room to wander.</strong><p>Stories, places, and perspectives to return to.</p></div><div class="side-foot">WAYFINDER JOURNAL · EST. 2026</div></aside>
       <div class="main"><header class="topbar"><span>ISSUE 01 / THE OPEN ROAD</span><button id="top-home" type="button">Explore stories <span aria-hidden="true">↗</span></button></header><main id="page" class="page"></main><footer class="footer"><span>Wayfinder Journal example app</span><span>Made for Surv hosting tests</span></footer></div>
     </div>
     <script>
@@ -142,8 +142,10 @@
       }
       document.getElementById("home-brand").href = routePrefix;
       document.getElementById("home-nav").href = routePrefix;
+      document.getElementById("scratchpad-nav").href = `${routePrefix}#scratchpad`;
       document.getElementById("home-brand").addEventListener("click", (event) => { event.preventDefault(); goHome(); });
       document.getElementById("home-nav").addEventListener("click", (event) => { event.preventDefault(); goHome(); });
+      document.getElementById("scratchpad-nav").addEventListener("click", (event) => { event.preventDefault(); if (currentSlug()) goHome(); history.replaceState({}, "", `${routePrefix}#scratchpad`); document.getElementById("scratchpad").scrollIntoView(); });
       document.getElementById("top-home").addEventListener("click", goHome);
       addEventListener("popstate", render);
       render();

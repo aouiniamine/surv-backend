@@ -9,3 +9,4 @@ dist/
 build/
 /db/schema.sql
 /uploads/
+.DS_Store

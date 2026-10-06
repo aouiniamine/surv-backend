@@ -53,7 +53,7 @@ surv-backend/
 └── tests/
 ```
 
-`auth` coordinates identity flows, `users` owns user records, and `organizations` owns organizations and memberships. `projects` remains a minimal vertical slice. Domain code lives under `src/domains/`; shared application wiring lives under `src/core/`. For each new SQL-owning domain, add `db/queries/<domain>/`, a corresponding `sql` entry in `sqlc.yaml`, generated output under `src/generated/<domain>/`, and the four required domain files. Auth composes the user and organization repositories for registration, so it has no separate SQL query directory.
+`auth` coordinates identity flows, `users` owns user records, and `organizations` owns organizations and memberships. `projects` owns project records, static deployments, and backup history. See [Deployments and backups](DEPLOYMENTS_AND_BACKUPS.md) for that flow and its storage layout. Domain code lives under `src/domains/`; shared application wiring lives under `src/core/`. For each new SQL-owning domain, add `db/queries/<domain>/`, a corresponding `sql` entry in `sqlc.yaml`, generated output under `src/generated/<domain>/`, and the four required domain files. Auth composes the user and organization repositories for registration, so it has no separate SQL query directory.
 
 ## Database lifecycle
 
