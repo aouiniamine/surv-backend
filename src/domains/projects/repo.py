@@ -109,3 +109,10 @@ class ProjectRepository:
                     project_id=project_id, user_id=user_id
                 )
             ]
+
+    async def get_backup(self, project_id: UUID, backup_id: UUID) -> ProjectBackup | None:
+        async with self._engine.connect() as conn:
+            row = await AsyncQuerier(conn).get_project_backup(
+                project_id=project_id, backup_id=backup_id
+            )
+        return ProjectBackup(row.id, row.archive_path, row.created_at) if row else None

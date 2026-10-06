@@ -12,3 +12,7 @@ class OrganizationUnavailable(LookupError):
 
 class ProjectAccessDenied(PermissionError):
     """The user has insufficient priority in the project's organization."""
+
+
+class ProjectBackupNotFound(LookupError):
+    """The requested backup does not belong to the project."""

@@ -12,6 +12,7 @@ from domains.projects.errors import (
     InvalidProjectName,
     OrganizationUnavailable,
     ProjectAccessDenied,
+    ProjectBackupNotFound,
     ProjectNotFound,
 )
 from domains.projects.model import Project, ProjectBackup
@@ -60,6 +61,17 @@ class ProjectService:
             request,
             lambda previous: self._repo.record_deployment(project.id, previous),
             backup_previous=project.status == "DEPLOYED",
+        )
+
+    async def restore_backup(self, public_id: str, backup_id: UUID, user_id: UUID) -> None:
+        project = await self.require_deployable(public_id, user_id)
+        backup = await self._repo.get_backup(project.id, backup_id)
+        if backup is None:
+            raise ProjectBackupNotFound("Backup not found")
+        await self.storage.restore(
+            public_id,
+            backup.archive_path,
+            lambda previous: self._repo.record_deployment(project.id, previous),
         )
 
     async def get(self, project_id: UUID, user_id: UUID) -> Project:

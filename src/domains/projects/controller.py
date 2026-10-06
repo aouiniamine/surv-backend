@@ -14,11 +14,17 @@ from domains.projects.errors import (
     InvalidProjectName,
     OrganizationUnavailable,
     ProjectAccessDenied,
+    ProjectBackupNotFound,
     ProjectNotFound,
 )
 from domains.projects.model import Project
 from domains.projects.service import ProjectService
-from domains.projects.storage import PUBLIC_ID_PATTERN, AppArchiveTooLarge, InvalidAppArchive
+from domains.projects.storage import (
+    PUBLIC_ID_PATTERN,
+    AppArchiveTooLarge,
+    BackupArchiveMissing,
+    InvalidAppArchive,
+)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 app_router = APIRouter(prefix="/app", tags=["apps"])
@@ -131,6 +137,30 @@ async def list_project_backups(
         ],
         "Project backups loaded",
     )
+
+
+@router.post(
+    "/{project_public_id}/backups/{backup_id}/restore",
+    response_model=ApiResponse[dict[str, str]],
+)
+async def restore_project_backup(
+    project_public_id: str,
+    backup_id: UUID,
+    request: Request,
+    user_id: UUID = Depends(current_user_id),
+    service: ProjectService = Depends(get_project_service),
+) -> ApiResponse[dict[str, str]]:
+    if not PUBLIC_ID_PATTERN.fullmatch(project_public_id):
+        raise HTTPException(status_code=404, detail="Project not found")
+    try:
+        await service.restore_backup(project_public_id, backup_id, user_id)
+    except (ProjectNotFound, ProjectBackupNotFound) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except BackupArchiveMissing as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (InvalidAppArchive, AppArchiveTooLarge) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return success({"url": project_app_url(request, project_public_id)}, "Backup restored")
 
 
 @router.get("/{project_id}", response_model=ApiResponse[ProjectResponse])

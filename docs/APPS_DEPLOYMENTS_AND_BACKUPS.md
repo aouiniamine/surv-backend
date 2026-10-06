@@ -38,13 +38,15 @@ Client folder -> ZIP request -> validate and extract in staging
                                 -> remove backups older than the newest three
 ```
 
-1. An Admin or Developer selects or drops a build folder in the project details page. The client requires `index.html` at that folder's root, validates paths and file count, and creates a ZIP containing the folder's **contents**. It estimates the 20 MiB ZIP limit before upload. The ZIP generator emits chunks, then `uploadZipStream` collects them into a `Blob` and sends a raw `application/zip` body with bearer authorization to `PUT /v1/projects/{public_id}/app`.
+1. An Admin or Developer drops a build folder in the project details page. The client requires `index.html` at that folder's root, validates paths and file count, and creates a ZIP containing the folder's **contents**. It estimates the 20 MiB ZIP limit before upload. The ZIP generator emits chunks, then `uploadZipStream` collects them into a `Blob` and sends a raw `application/zip` body with bearer authorization to `PUT /v1/projects/{public_id}/app`.
 2. The controller validates the seven-character public ID and content type. `ProjectService` asks the repository for that project with an Admin or Developer membership in its organization. The backend streams the request body to a temporary ZIP on disk and rejects it once more than **20 MiB** has arrived. It does not store the uploaded bytes in PostgreSQL.
 3. `ProjectStorage` extracts into a staging directory. It requires root `index.html`, allows at most **10,000 ZIP entries** and **1 GiB of declared extracted file sizes**, and rejects unsafe paths and non-regular file types such as symlinks. Validation finishes before the live directory is replaced.
 4. On the first deployment, the staged directory becomes `public/`, the ZIP becomes `current.zip`, and the database status changes from `CREATED` to `DEPLOYED`. No backup row is created.
 5. On a replacement deployment, the previous `current.zip` moves to `backups/<key>.zip` and the previous `public/` moves to `backups/<key>/public/`. The new files become current. In one database transaction, the repository inserts the previous archive path into `project_backup`, keeps only the **three newest backups for that project** (ordered by `created_at DESC, id DESC`), and marks the project `DEPLOYED`. The storage layer then deletes the expired ZIPs and extracted directories returned by that transaction.
 
-If publication or the database operation fails before it is recorded, the storage layer attempts to restore the previous `public/` and `current.zip`. Filesystem changes and the PostgreSQL transaction are not one atomic transaction; a process crash or concurrent deployments can still require manual reconciliation. There is currently no deploy lock, backup download API, or restore action. Backups are previews of previous versions, not automatic rollbacks.
+Restoring a backup validates and extracts its saved ZIP into staging, then uses the same publication path as a replacement deployment. The selected backup becomes `public/` and `current.zip`; the previously live version becomes a new backup. The selected backup remains in history unless it is the oldest one trimmed by the three-backup limit. The restored build is served through the unchanged live URL.
+
+If publication or the database operation fails before it is recorded, the storage layer attempts to restore the previous `public/` and `current.zip`. Filesystem changes and the PostgreSQL transaction are not one atomic transaction; a process crash or concurrent deployments or restores can still require manual reconciliation. There is currently no deploy lock or backup download API.
 
 ## API and serving
 
@@ -54,6 +56,7 @@ If publication or the database operation fails before it is recorded, the storag
 | `PUT /v1/projects/{public_id}/app` | Admin or Developer in the organization | Replaces the static build; returns `{ "url": "..." }` in the API envelope. |
 | `GET /v1/projects/{id}` | Organization member, including QA | Returns project metadata, `status`, and `app_url`. |
 | `GET /v1/projects/{id}/backups` | Organization member, including QA | Returns newest-first `{ id, created_at, preview_url }` records. |
+| `POST /v1/projects/{public_id}/backups/{backup_id}/restore` | Admin or Developer in the organization | Makes the selected backup live and saves the replaced live build as a backup; returns `{ "url": "..." }`. |
 | `GET /app/{public_id}/...` | Public | Serves the current extracted build. |
 | `GET /app-backups/{public_id}/{key}/...` | Public | Serves a saved build, extracting its ZIP if needed. |
 
@@ -67,7 +70,7 @@ In `development`, `dev`, and `staging`, `app_url` is the request origin plus `/a
 
 The client route `/workspace/:organizationId/projects/:projectId` loads the organization, project, and backup list together. It shows project status and exposes the deployment URL and live iframe only when `status === "DEPLOYED"`. The iframe always points at the current `app_url`; it never switches to a backup. On desktop, CSS renders a 1280 × 800 iframe viewport and scales it to the available panel width. At widths below 1024px, the iframe uses the panel's natural width. The iframe is noninteractive and has scrolling disabled, `sandbox="allow-scripts allow-forms"`, and `referrerPolicy="no-referrer"`. A link covering the preview opens the current deployment in a separate browser tab or window.
 
-The backup section shows up to three previous versions in newest-first order. Each card contains a scaled, noninteractive iframe of its saved deployment and links to the same `preview_url` with `target="_blank"` and `rel="noopener noreferrer"`. Selecting a card opens that backup in a separate browser tab or window; it does not change the main live iframe. Backup thumbnail iframes load lazily and use a sandbox without popup access. After a successful upload, the client refreshes project and backup data.
+The backup section shows up to three previous versions in newest-first order. Each card contains a scaled, noninteractive iframe of its saved deployment and links to the same `preview_url` with `target="_blank"` and `rel="noopener noreferrer"`. Selecting the preview opens that backup in a separate browser tab or window; it does not change the main live iframe. Admins and Developers also see a restore button on each card. An in-app confirmation explains that the current version becomes a backup and the oldest backup may be trimmed. After a successful upload or restore, the client refreshes project and backup data. Backup thumbnail iframes load lazily and use a sandbox without popup access.
 
 ## Source map
 

@@ -29,6 +29,10 @@ class AppArchiveTooLarge(ValueError):
     """The uploaded application exceeds the deployment limits."""
 
 
+class BackupArchiveMissing(FileNotFoundError):
+    """A recorded backup no longer has an archive on disk."""
+
+
 class ProjectStorage:
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -72,6 +76,27 @@ class ProjectStorage:
         finally:
             if archive_path is not None:
                 archive_path.unlink(missing_ok=True)
+
+    async def restore(
+        self,
+        public_id: str,
+        backup_path: str,
+        record_deployment: Callable[[str | None], Awaitable[list[str]]],
+    ) -> None:
+        relative = Path(backup_path)
+        if (
+            relative.parent != Path("backups")
+            or relative.suffix != ".zip"
+            or not BACKUP_KEY_PATTERN.fullmatch(relative.stem)
+        ):
+            raise InvalidAppArchive("Backup archive path is invalid")
+        archive = self.project_dir(public_id) / relative
+        if not archive.is_file():
+            raise BackupArchiveMissing("Backup archive is missing")
+        staging = await asyncio.to_thread(self._prepare, public_id, archive)
+        await self._publish_and_record(
+            public_id, archive, staging, record_deployment, backup_previous=True
+        )
 
     def _prepare(self, public_id: str, archive_path: Path) -> Path:
         project_dir = self.project_dir(public_id)

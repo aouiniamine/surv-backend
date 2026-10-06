@@ -84,6 +84,21 @@ class GetProjectRow:
     role: Optional[models.OrganizationRole]
 
 
+GET_PROJECT_BACKUP = """-- name: get_project_backup \\:one
+SELECT id, archive_path, created_at
+FROM project_backup
+WHERE project_id = :p1
+  AND id = :p2
+"""
+
+
+@dataclasses.dataclass()
+class GetProjectBackupRow:
+    id: uuid.UUID
+    archive_path: str
+    created_at: datetime.datetime
+
+
 LIST_ORGANIZATION_PROJECTS = """-- name: list_organization_projects \\:many
 SELECT p.id, p.organization_id, p.name, p.public_id, p.status, p.created_at
 FROM projects AS p
@@ -209,6 +224,16 @@ class AsyncQuerier:
             status=row[4],
             created_at=row[5],
             role=row[6],
+        )
+
+    async def get_project_backup(self, *, project_id: uuid.UUID, backup_id: uuid.UUID) -> Optional[GetProjectBackupRow]:
+        row = (await self._conn.execute(sqlalchemy.text(GET_PROJECT_BACKUP), {"p1": project_id, "p2": backup_id})).first()
+        if row is None:
+            return None
+        return GetProjectBackupRow(
+            id=row[0],
+            archive_path=row[1],
+            created_at=row[2],
         )
 
     async def list_organization_projects(self, *, organization_id: uuid.UUID, user_id: uuid.UUID) -> AsyncIterator[ListOrganizationProjectsRow]:

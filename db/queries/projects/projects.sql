@@ -67,3 +67,9 @@ JOIN user_organization_relation AS r ON r.organization_id = p.organization_id
 WHERE p.id = sqlc.arg(project_id)
   AND r.user_id = sqlc.arg(user_id)
 ORDER BY b.created_at DESC, b.id DESC;
+
+-- name: GetProjectBackup :one
+SELECT id, archive_path, created_at
+FROM project_backup
+WHERE project_id = sqlc.arg(project_id)
+  AND id = sqlc.arg(backup_id);

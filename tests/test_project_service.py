@@ -106,6 +106,14 @@ class FakeProjectStore:
             for index, path in enumerate(reversed(self.backups))
         ]
 
+    async def get_backup(self, project_id: UUID, backup_id: UUID) -> ProjectBackup | None:
+        if self.project is None or self.project.id != project_id:
+            return None
+        for backup in await self.list_backups(project_id, USER_ID):
+            if backup.id == backup_id:
+                return backup
+        return None
+
 
 class ProjectServiceTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
@@ -255,11 +263,13 @@ class ProjectServiceTests(unittest.IsolatedAsyncioTestCase):
                 store = FakeProjectStore()
                 service = ProjectService(store, FakeOrganizationAccess(), storage)
                 project = await service.create("My app", ORGANIZATION_ID, USER_ID)
-                app = create_app(Settings(
-                    project_uploads_root=root,
-                    project_environment=environment,
-                    apps_domain=domain,
-                ))
+                app = create_app(
+                    Settings(
+                        project_uploads_root=root,
+                        project_environment=environment,
+                        apps_domain=domain,
+                    )
+                )
                 app.dependency_overrides[current_user_id] = lambda: USER_ID
                 app.dependency_overrides[get_project_service] = lambda: service
                 async with AsyncClient(
@@ -435,6 +445,73 @@ class ProjectServiceTests(unittest.IsolatedAsyncioTestCase):
                 404,
             )
             self.assertEqual((await client.get(f"/app/{project.public_id}/")).text, "version 4")
+
+    async def test_restore_backup_replaces_live_site_and_backs_up_current_version(self) -> None:
+        store = FakeProjectStore()
+        service = self.project_service(store, FakeOrganizationAccess())
+        project = await service.create("My app", ORGANIZATION_ID, USER_ID)
+        app = create_app(Settings(project_uploads_root=str(self.storage.root)))
+        app.dependency_overrides[current_user_id] = lambda: USER_ID
+        app.dependency_overrides[get_project_service] = lambda: service
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            for version in range(4):
+                output = BytesIO()
+                with zipfile.ZipFile(output, "w") as archive:
+                    archive.writestr("index.html", f"version {version}")
+                response = await client.put(
+                    f"/v1/projects/{project.public_id}/app",
+                    content=output.getvalue(),
+                    headers={"content-type": "application/zip"},
+                )
+                self.assertEqual(response.status_code, 200)
+
+            backups = (await client.get(f"/v1/projects/{project.id}/backups")).json()["data"]
+            oldest = backups[-1]
+            restored = await client.post(
+                f"/v1/projects/{project.public_id}/backups/{oldest['id']}/restore"
+            )
+            self.assertEqual(restored.status_code, 200)
+            self.assertEqual(
+                restored.json()["data"]["url"], f"http://test/app/{project.public_id}/"
+            )
+            self.assertEqual((await client.get(f"/app/{project.public_id}/")).text, "version 0")
+            self.assertEqual(len(store.backups), 3)
+            latest = (await client.get(f"/v1/projects/{project.id}/backups")).json()["data"][0]
+            self.assertEqual((await client.get(latest["preview_url"])).text, "version 3")
+            self.assertEqual((await client.get(oldest["preview_url"])).status_code, 404)
+
+    async def test_restore_backup_checks_access_and_missing_archive(self) -> None:
+        store = FakeProjectStore()
+        service = self.project_service(store, FakeOrganizationAccess())
+        project = await service.create("My app", ORGANIZATION_ID, USER_ID)
+        app = create_app(Settings(project_uploads_root=str(self.storage.root)))
+        app.dependency_overrides[current_user_id] = lambda: USER_ID
+        app.dependency_overrides[get_project_service] = lambda: service
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            for version in ("original", "new"):
+                output = BytesIO()
+                with zipfile.ZipFile(output, "w") as archive:
+                    archive.writestr("index.html", version)
+                self.assertEqual(
+                    (
+                        await client.put(
+                            f"/v1/projects/{project.public_id}/app",
+                            content=output.getvalue(),
+                            headers={"content-type": "application/zip"},
+                        )
+                    ).status_code,
+                    200,
+                )
+            backup = (await client.get(f"/v1/projects/{project.id}/backups")).json()["data"][0]
+            url = f"/v1/projects/{project.public_id}/backups/{backup['id']}/restore"
+            missing_url = url.replace(backup["id"], str(UUID(int=99)))
+            self.assertEqual((await client.post(missing_url)).status_code, 404)
+            store.role = OrganizationRole.QA
+            self.assertEqual((await client.post(url)).status_code, 404)
+            store.role = OrganizationRole.ADMIN
+            (self.storage.project_dir(project.public_id) / store.backups[0]).unlink()
+            self.assertEqual((await client.post(url)).status_code, 409)
+            self.assertEqual((await client.get(f"/app/{project.public_id}/")).text, "new")
 
     async def test_upload_rejects_archive_over_20_mib(self) -> None:
         store = FakeProjectStore()
