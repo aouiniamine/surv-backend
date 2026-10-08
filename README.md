@@ -86,6 +86,19 @@ Use `docker compose logs postgres redis` to inspect local service failures. `doc
 
 The full deployment and backup design, including disk layout, API access, retention, and failure handling, is in [Deployments and backups](DEPLOYMENTS_AND_BACKUPS.md).
 
+## Surv Agent (local development)
+
+Surv Agent creates static site drafts under `<PROJECT_UPLOADS_ROOT>/<public_id>/dev/public`. Its run and publish routes are under `/v1/agent`, separate from the projects API. The protected draft iframe is at `/app/<public_id>/dev/`. The client presents a dedicated agent page under each project at `/workspace/<organization_id>/projects/<project_id>/agent`, with the breadcrumb `Workspace / <project> / Surv Agent`. Admins and Developers can request a run, review its output, inspect file diffs after the run ends, open the draft preview in a new window, and explicitly publish a selected revision. QA members can review and preview. The live `public/` directory changes only on publish, which uses the normal deployment and backup path.
+
+Install [Ollama](https://ollama.com/) locally and pull a model with tool support (the default is `qwen3:4b`):
+
+```sh
+ollama pull qwen3:4b
+ollama serve
+```
+
+Set `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, and `AGENT_WORKER_ENABLED` in `.env`. The API process runs the background worker when enabled; all API instances share the PostgreSQL run queue. Configure a concrete `CORS_ORIGINS` list containing the client origin for the private iframe preview session. In production, host the client and API on the same site (for example, sibling subdomains) so the short-lived SameSite preview cookie reaches the iframe; otherwise provide an authenticated same-origin proxy before enabling preview. Keep `PROJECT_UPLOADS_ROOT` on persistent storage shared by API instances. The agent has fixed text-file tools and cannot run shell commands or publish itself. The optional Impeccable setting supplies a versioned, reviewed frontend guidance excerpt; it does not execute skill scripts. See [agent requirements](docs/SURV_AGENT_REQUIREMENTS.md) and [design plan](docs/SURV_AGENT_DESIGN_PLAN.md) for the full contract and remaining rollout gates.
+
 Creating a project creates `./uploads/projects/<public_id>/public` (relative to the backend process directory) with status `CREATED`. Set `PROJECT_UPLOADS_ROOT` to use a persistent shared volume in deployment. Admins and developers can replace a project's static site with `PUT /v1/projects/<public_id>/app`, using a bearer token and a raw `application/zip` request body. The ZIP must contain `index.html` at its root. The upload limit is 20 MiB compressed, 1 GiB extracted, and 10,000 entries. Extraction rejects traversal paths and symlinks and publishes only after validation succeeds. A successful upload changes status to `DEPLOYED`. Replacing a deployed app moves its previous ZIP into `backups/` under the project storage directory and records its relative path in `project_backup`. The newest three backups per project are retained; older files and rows are removed.
 
 The site is public at `/app/<public_id>/`. Existing files and directory indexes are served directly; other paths fall back to the site's root `index.html` for client-side routing. Build applications with relative asset URLs or with `/app/<public_id>/` as their base path.

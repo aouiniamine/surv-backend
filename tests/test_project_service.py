@@ -61,6 +61,10 @@ class FakeProjectStore:
         self.role = role
         self.backups: list[str] = []
 
+    @asynccontextmanager
+    async def project_lock(self, project_id: UUID):
+        yield
+
     async def create(self, name: str, organization_id: UUID, user_id: UUID) -> Project | None:
         self.saved_args = (name, organization_id, user_id)
         self.project = Project(

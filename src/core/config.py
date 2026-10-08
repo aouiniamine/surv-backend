@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     jwt_secret_key: str = Field(..., min_length=32)
     cors_origins: str = "*"
     project_uploads_root: str = "./uploads/projects"
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    ollama_model: str = "qwen3:4b"
+    agent_worker_enabled: bool = True
     project_environment: Literal["dev", "development", "staging", "production"] = "development"
     apps_domain: str | None = None
 

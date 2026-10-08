@@ -4,13 +4,18 @@
 # source: projects.sql
 import dataclasses
 import datetime
-from typing import AsyncIterator, Optional
+from typing import Any, AsyncIterator, Optional
 import uuid
 
 import sqlalchemy
 import sqlalchemy.ext.asyncio
 
 from generated.projects import models
+
+
+ACQUIRE_PROJECT_LOCK = """-- name: acquire_project_lock \\:one
+SELECT pg_advisory_lock(hashtextextended(CAST(:p1 AS text), 0))
+"""
 
 
 CREATE_PROJECT = """-- name: create_project \\:one
@@ -161,6 +166,11 @@ UPDATE projects SET status = 'DEPLOYED' WHERE id = :p1
 """
 
 
+RELEASE_PROJECT_LOCK = """-- name: release_project_lock \\:one
+SELECT pg_advisory_unlock(hashtextextended(CAST(:p1 AS text), 0))
+"""
+
+
 TRIM_PROJECT_BACKUPS = """-- name: trim_project_backups \\:many
 DELETE FROM project_backup AS old_backup
 WHERE old_backup.project_id = :p1
@@ -177,6 +187,12 @@ RETURNING old_backup.archive_path
 class AsyncQuerier:
     def __init__(self, conn: sqlalchemy.ext.asyncio.AsyncConnection):
         self._conn = conn
+
+    async def acquire_project_lock(self, *, project_id: str) -> Optional[Any]:
+        row = (await self._conn.execute(sqlalchemy.text(ACQUIRE_PROJECT_LOCK), {"p1": project_id})).first()
+        if row is None:
+            return None
+        return row[0]
 
     async def create_project(self, *, organization_id: uuid.UUID, name: str, public_id: str, user_id: uuid.UUID) -> Optional[CreateProjectRow]:
         row = (await self._conn.execute(sqlalchemy.text(CREATE_PROJECT), {
@@ -271,6 +287,12 @@ class AsyncQuerier:
 
     async def mark_project_deployed(self, *, project_id: uuid.UUID) -> None:
         await self._conn.execute(sqlalchemy.text(MARK_PROJECT_DEPLOYED), {"p1": project_id})
+
+    async def release_project_lock(self, *, project_id: str) -> Optional[bool]:
+        row = (await self._conn.execute(sqlalchemy.text(RELEASE_PROJECT_LOCK), {"p1": project_id})).first()
+        if row is None:
+            return None
+        return row[0]
 
     async def trim_project_backups(self, *, project_id: uuid.UUID) -> AsyncIterator[str]:
         result = await self._conn.stream(sqlalchemy.text(TRIM_PROJECT_BACKUPS), {"p1": project_id})

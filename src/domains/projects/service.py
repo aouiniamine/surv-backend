@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from sqlalchemy.ext.asyncio import AsyncConnection
 from starlette.requests import Request
 
 from domains.organizations.errors import OrganizationNotFound
@@ -56,23 +60,73 @@ class ProjectService:
 
     async def deploy(self, public_id: str, user_id: UUID, request: Request) -> None:
         project = await self.require_deployable(public_id, user_id)
-        await self.storage.deploy(
-            public_id,
-            request,
-            lambda previous: self._repo.record_deployment(project.id, previous),
-            backup_previous=project.status == "DEPLOYED",
-        )
+        async with self._repo.project_lock(project.id):
+            project = await self.require_deployable(public_id, user_id)
+            await self.storage.deploy(
+                public_id,
+                request,
+                lambda previous: self._repo.record_deployment(project.id, previous),
+                backup_previous=project.status == "DEPLOYED",
+            )
 
     async def restore_backup(self, public_id: str, backup_id: UUID, user_id: UUID) -> None:
         project = await self.require_deployable(public_id, user_id)
         backup = await self._repo.get_backup(project.id, backup_id)
         if backup is None:
             raise ProjectBackupNotFound("Backup not found")
-        await self.storage.restore(
-            public_id,
-            backup.archive_path,
-            lambda previous: self._repo.record_deployment(project.id, previous),
-        )
+        async with self._repo.project_lock(project.id):
+            project = await self.require_deployable(public_id, user_id)
+            await self.storage.restore(
+                public_id,
+                backup.archive_path,
+                lambda previous: self._repo.record_deployment(project.id, previous),
+            )
+
+    async def publish_archive(self, project_id: UUID, user_id: UUID, archive_path: Path) -> str:
+        project = await self.get(project_id, user_id)
+        async with self._repo.project_lock(project.id):
+            project = await self.require_deployable(project.public_id, user_id)
+            await self.storage.deploy_archive(
+                project.public_id,
+                archive_path,
+                lambda previous: self._repo.record_deployment(project.id, previous),
+                backup_previous=project.status == "DEPLOYED",
+            )
+        return project.public_id
+
+    async def publish_draft(
+        self,
+        project_id: UUID,
+        user_id: UUID,
+        expected_revision: str,
+        current_revision: Callable[[], Awaitable[tuple[str | None, bool]]],
+        disk_revision: Callable[[str], str],
+        make_archive: Callable[[str], Path],
+        mark_published: Callable[[AsyncConnection], Awaitable[None]],
+    ) -> str:
+        project = await self.get(project_id, user_id)
+        async with self._repo.project_lock(project.id):
+            project = await self.require_deployable(project.public_id, user_id)
+            actual_revision, already_published = await current_revision()
+            if actual_revision != expected_revision:
+                raise ValueError("Draft revision changed")
+            if await asyncio.to_thread(disk_revision, project.public_id) != expected_revision:
+                raise ValueError("Draft files changed")
+            if already_published:
+                return project.public_id
+            archive = await asyncio.to_thread(make_archive, project.public_id)
+            try:
+                await self.storage.deploy_archive(
+                    project.public_id,
+                    archive,
+                    lambda previous: self._repo.record_deployment(
+                        project.id, previous, mark_published
+                    ),
+                    backup_previous=project.status == "DEPLOYED",
+                )
+            finally:
+                archive.unlink(missing_ok=True)
+        return project.public_id
 
     async def get(self, project_id: UUID, user_id: UUID) -> Project:
         access = await self._repo.get(project_id, user_id)

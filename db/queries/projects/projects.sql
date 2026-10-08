@@ -59,6 +59,12 @@ WHERE old_backup.project_id = sqlc.arg(project_id)
   )
 RETURNING old_backup.archive_path;
 
+-- name: AcquireProjectLock :one
+SELECT pg_advisory_lock(hashtextextended(CAST(sqlc.arg(project_id) AS text), 0));
+
+-- name: ReleaseProjectLock :one
+SELECT pg_advisory_unlock(hashtextextended(CAST(sqlc.arg(project_id) AS text), 0));
+
 -- name: ListProjectBackups :many
 SELECT b.id, b.archive_path, b.created_at
 FROM project_backup AS b

@@ -4,6 +4,7 @@
 import dataclasses
 import datetime
 import enum
+from typing import Optional
 import uuid
 
 
@@ -11,6 +12,53 @@ class OrganizationRole(str, enum.Enum):
     ADMIN = "ADMIN"
     DEVELOPER = "DEVELOPER"
     QA = "QA"
+
+
+@dataclasses.dataclass()
+class AgentDraft:
+    project_id: uuid.UUID
+    revision: str
+    source_run_id: uuid.UUID
+    created_at: datetime.datetime
+    published_revision: Optional[str]
+
+
+@dataclasses.dataclass()
+class AgentFileChange:
+    id: uuid.UUID
+    run_id: uuid.UUID
+    path: str
+    change_type: str
+    diff_text: Optional[str]
+    created_at: datetime.datetime
+
+
+@dataclasses.dataclass()
+class AgentRun:
+    id: uuid.UUID
+    project_id: uuid.UUID
+    created_by: uuid.UUID
+    prompt: str
+    status: str
+    provider_id: str
+    model_id: str
+    error_message: Optional[str]
+    draft_revision: Optional[str]
+    created_at: datetime.datetime
+    started_at: Optional[datetime.datetime]
+    completed_at: Optional[datetime.datetime]
+    heartbeat_at: Optional[datetime.datetime]
+    skill_id: Optional[str]
+    skill_version: Optional[str]
+
+
+@dataclasses.dataclass()
+class AgentRunEvent:
+    run_id: uuid.UUID
+    sequence: int
+    kind: str
+    content: str
+    created_at: datetime.datetime
 
 
 @dataclasses.dataclass()

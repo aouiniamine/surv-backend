@@ -3,6 +3,7 @@ from uuid import UUID
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from domains.agent.service import AgentService
 from domains.auth.errors import Unauthorized
 from domains.auth.service import AuthService
 from domains.organizations.service import OrganizationService
@@ -14,6 +15,10 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 def get_project_service(request: Request) -> ProjectService:
     return request.app.state.project_service
+
+
+def get_agent_service(request: Request) -> AgentService:
+    return request.app.state.agent_service
 
 
 def get_auth_service(request: Request) -> AuthService:

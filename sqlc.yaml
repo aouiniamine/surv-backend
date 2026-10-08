@@ -7,6 +7,16 @@ plugins:
 sql:
   - engine: postgresql
     schema: db/migrations
+    queries: db/queries/agent
+    codegen:
+      - out: src/generated/agent
+        plugin: py
+        options:
+          package: generated.agent
+          emit_async_querier: true
+          emit_sync_querier: false
+  - engine: postgresql
+    schema: db/migrations
     queries: db/queries/projects
     codegen:
       - out: src/generated/projects

@@ -98,6 +98,21 @@ class ProjectStorage:
             public_id, archive, staging, record_deployment, backup_previous=True
         )
 
+    async def deploy_archive(
+        self,
+        public_id: str,
+        archive_path: Path,
+        record_deployment: Callable[[str | None], Awaitable[list[str]]],
+        *,
+        backup_previous: bool,
+    ) -> None:
+        if archive_path.stat().st_size > MAX_ARCHIVE_BYTES:
+            raise AppArchiveTooLarge("ZIP archive exceeds 20 MiB")
+        staging = await asyncio.to_thread(self._prepare, public_id, archive_path)
+        await self._publish_and_record(
+            public_id, archive_path, staging, record_deployment, backup_previous
+        )
+
     def _prepare(self, public_id: str, archive_path: Path) -> Path:
         project_dir = self.project_dir(public_id)
         staging = Path(tempfile.mkdtemp(prefix=".staging-", dir=project_dir))
@@ -226,6 +241,10 @@ class ProjectStorage:
         public = self.project_dir(public_id) / "public"
         return self._asset_from_directory(public, request_path)
 
+    def draft_asset(self, public_id: str, request_path: str) -> Path | None:
+        public = self.project_dir(public_id) / "dev" / "public"
+        return self._asset_from_directory(public, request_path)
+
     def backup_asset(self, public_id: str, backup_key: str, request_path: str) -> Path | None:
         if not BACKUP_KEY_PATTERN.fullmatch(backup_key):
             return None
@@ -273,6 +292,13 @@ class ProjectStorage:
             asset,
             self.project_dir(public_id) / "public",
             f"/app/{public_id}/".encode(),
+        )
+
+    def rewritten_draft_asset(self, public_id: str, asset: Path) -> bytes | None:
+        return self._rewritten_asset(
+            asset,
+            self.project_dir(public_id) / "dev" / "public",
+            f"/app/{public_id}/dev/".encode(),
         )
 
     def rewritten_backup_asset(self, public_id: str, backup_key: str, asset: Path) -> bytes | None:
