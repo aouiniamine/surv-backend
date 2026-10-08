@@ -3,6 +3,7 @@ from uuid import UUID
 
 from domains.agent.errors import AgentAccessDenied, AgentConflict, AgentInvalid, AgentNotFound
 from domains.agent.model import AgentChange, AgentDraft, AgentEvent, AgentProject, AgentRun
+from domains.agent.providers.base import ModelProvider
 from domains.agent.repo import AgentRepository
 from domains.agent.skills import select_skill
 from domains.agent.workspace import AgentWorkspace
@@ -16,12 +17,12 @@ class AgentService:
         repo: AgentRepository,
         workspace: AgentWorkspace,
         projects: ProjectService,
-        model_id: str,
+        provider: ModelProvider,
     ) -> None:
         self._repo = repo
         self._workspace = workspace
         self._projects = projects
-        self._model_id = model_id
+        self._provider = provider
 
     async def project(
         self, project_id: UUID, user_id: UUID, *, mutate: bool = False
@@ -42,7 +43,8 @@ class AgentService:
             raise AgentInvalid("Prompt must contain 1 to 8000 characters")
         skill = select_skill(skill_id)
         return await self._repo.create_run(
-            project_id, user_id, clean_prompt, self._model_id,
+            project_id, user_id, clean_prompt, self._provider.provider_id,
+            self._provider.model_id,
             skill.id if skill else None, skill.version if skill else None,
         )
 

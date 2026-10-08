@@ -79,7 +79,7 @@ class FakeProvider:
 
 def test_worker_writes_only_draft_and_records_review_artifacts(tmp_path):
     project_id = uuid4()
-    run = ClaimedRun(uuid4(), project_id, uuid4(), "Build a page", "test-model", None, None)
+    run = ClaimedRun(uuid4(), project_id, uuid4(), "Build a page", "fake", "test-model", None, None)
     project = AgentProject(project_id, "abc1234", "DEPLOYED", OrganizationRole.ADMIN)
     repository = FakeRepo(run, project)
     worker = AgentWorker(

@@ -39,7 +39,7 @@ WHERE id = (
     SELECT id FROM agent_run WHERE status = 'queued'
     ORDER BY created_at, id FOR UPDATE SKIP LOCKED LIMIT 1
 )
-RETURNING id, project_id, created_by, prompt, model_id, skill_id, skill_version
+RETURNING id, project_id, created_by, prompt, provider_id, model_id, skill_id, skill_version
 """
 
 
@@ -49,6 +49,7 @@ class ClaimAgentRunRow:
     project_id: uuid.UUID
     created_by: uuid.UUID
     prompt: str
+    provider_id: str
     model_id: str
     skill_id: Optional[str]
     skill_version: Optional[str]
@@ -60,9 +61,9 @@ UPDATE agent_draft SET published_revision = NULL WHERE project_id = :p1
 
 
 CREATE_AGENT_RUN = """-- name: create_agent_run \\:one
-INSERT INTO agent_run (project_id, created_by, prompt, model_id, skill_id, skill_version)
-VALUES (:p1, :p2, :p3, :p4,
-        :p5, :p6)
+INSERT INTO agent_run (project_id, created_by, prompt, provider_id, model_id, skill_id, skill_version)
+VALUES (:p1, :p2, :p3,
+        :p4, :p5, :p6, :p7)
 RETURNING id, project_id, created_by, status, provider_id, model_id, error_message,
           draft_revision, skill_id, skill_version, created_at, started_at, completed_at
 """
@@ -73,6 +74,7 @@ class CreateAgentRunParams:
     project_id: uuid.UUID
     user_id: uuid.UUID
     prompt: str
+    provider_id: str
     model_id: str
     skill_id: Optional[str]
     skill_version: Optional[str]
@@ -321,9 +323,10 @@ class AsyncQuerier:
             project_id=row[1],
             created_by=row[2],
             prompt=row[3],
-            model_id=row[4],
-            skill_id=row[5],
-            skill_version=row[6],
+            provider_id=row[4],
+            model_id=row[5],
+            skill_id=row[6],
+            skill_version=row[7],
         )
 
     async def clear_agent_draft_publication(self, *, project_id: uuid.UUID) -> None:
@@ -334,9 +337,10 @@ class AsyncQuerier:
             "p1": arg.project_id,
             "p2": arg.user_id,
             "p3": arg.prompt,
-            "p4": arg.model_id,
-            "p5": arg.skill_id,
-            "p6": arg.skill_version,
+            "p4": arg.provider_id,
+            "p5": arg.model_id,
+            "p6": arg.skill_id,
+            "p7": arg.skill_version,
         })).first()
         if row is None:
             return None

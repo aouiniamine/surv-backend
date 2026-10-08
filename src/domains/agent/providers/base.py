@@ -7,6 +7,7 @@ from typing import Any, Protocol
 class ToolCall:
     name: str
     arguments: dict[str, Any]
+    id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import logging
 import re
 from typing import Any
 
@@ -15,6 +16,7 @@ MAX_STEPS = 40
 MAX_TOOL_CALLS = 120
 MAX_OUTPUT_CHARS = 40_000
 RUN_TIMEOUT_SECONDS = 600
+logger = logging.getLogger("uvicorn.error")
 
 TOOLS: list[dict[str, Any]] = [
     {
@@ -63,18 +65,23 @@ TOOLS: list[dict[str, Any]] = [
     },
 ]
 
-SYSTEM_PROMPT = """You're a senior Product Engineer with expertise in UX/UI Design and Front-end development, you need to work on what the client asks.
+SYSTEM_PROMPT = """You're a senior Product Engineer with expertise in UX/UI Design and
+Front-end development, you need to work on what the client asks.
 You are Surv Agent. Build a complete static website for the user's request.
 Use the file tools to create or edit HTML and JavaScript in the workspace.
 Create the site's styling with Tailwind CSS utility classes instead of plain handcrafted CSS.
-This static workspace has no build step, so include <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script> in index.html's head.
+This static workspace has no build step, so include
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+in index.html's head.
 Use <style type="text/tailwindcss"> only for small theme or utility extensions when necessary.
-The publishable website must have index.html at the workspace root. Use relative paths for project-owned assets.
+The publishable website must have index.html at the workspace root.
+Use relative paths for project-owned assets.
 You cannot use a shell, install packages, access other projects, or publish the site.
 Before finishing, list files and check that index.html references files you created.
 After all file work is complete, give the client a concise plain-language summary focused on
 the requested business outcome, what visitors can now do, and any meaningful limitation.
-Do not show code, file paths, tool names, styling technology, implementation steps, or developer jargon
+Do not show code, file paths, tool names, styling technology, implementation steps,
+or developer jargon
 in that client-facing response. Never include secrets or hidden reasoning.
 """
 
@@ -146,6 +153,8 @@ class AgentWorker:
         project = await self._repo.get_project(run.project_id, run.created_by)
         if project is None:
             raise AgentInvalid("Project access was revoked")
+        if run.provider_id != self._provider.provider_id:
+            raise AgentInvalid("Configured provider changed before the run started")
         if run.model_id != self._provider.model_id:
             raise AgentInvalid("Configured model changed before the run started")
         await self._provider.check_ready()
@@ -198,7 +207,10 @@ class AgentWorker:
                     summary = f"{call.name}: rejected"
                 await self._repo.add_event(run.id, "tool", _redact(summary))
                 messages.append(
-                    {"role": "tool", "tool_name": call.name, "content": result[:MAX_FILE_BYTES]}
+                    {
+                        "role": "tool", "tool_name": call.name,
+                        "tool_call_id": call.id, "content": result[:MAX_FILE_BYTES],
+                    }
                 )
         else:
             raise AgentInvalid("Agent step limit reached")
@@ -209,7 +221,9 @@ class AgentWorker:
         if await self._repo.run_status(run.id) != "running":
             return
         await self._repo.add_event(
-            run.id, "text", final_message or "Your draft is ready to review. Preview it before publishing."
+            run.id,
+            "text",
+            final_message or "Your draft is ready to review. Preview it before publishing.",
         )
         async with self._project_repo.project_lock(run.project_id):
             if await self._repo.run_status(run.id) != "running":
@@ -236,6 +250,10 @@ class AgentWorker:
             async with asyncio.timeout(RUN_TIMEOUT_SECONDS):
                 await self._process(run)
         except (Exception, TimeoutError) as exc:
+            logger.exception(
+                "Surv Agent run %s failed (provider=%s, model=%s) [%s]",
+                run.id, run.provider_id, run.model_id, exc,
+            )
             # Preserve reviewable diffs from a failed candidate when possible.
             project = await self._repo.get_project(run.project_id, run.created_by)
             if project is not None:
@@ -268,5 +286,6 @@ class AgentWorker:
                     await asyncio.sleep(1)
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as exc:
+                logger.exception("Surv Agent worker loop failed: %s", exc)
                 await asyncio.sleep(3)

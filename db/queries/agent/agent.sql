@@ -6,9 +6,9 @@ JOIN user_organization_relation AS r
 WHERE p.id = sqlc.arg(project_id) AND r.user_id = sqlc.arg(user_id);
 
 -- name: CreateAgentRun :one
-INSERT INTO agent_run (project_id, created_by, prompt, model_id, skill_id, skill_version)
-VALUES (sqlc.arg(project_id), sqlc.arg(user_id), sqlc.arg(prompt), sqlc.arg(model_id),
-        sqlc.narg(skill_id), sqlc.narg(skill_version))
+INSERT INTO agent_run (project_id, created_by, prompt, provider_id, model_id, skill_id, skill_version)
+VALUES (sqlc.arg(project_id), sqlc.arg(user_id), sqlc.arg(prompt),
+        sqlc.arg(provider_id), sqlc.arg(model_id), sqlc.narg(skill_id), sqlc.narg(skill_version))
 RETURNING id, project_id, created_by, status, provider_id, model_id, error_message,
           draft_revision, skill_id, skill_version, created_at, started_at, completed_at;
 
@@ -39,7 +39,7 @@ WHERE id = (
     SELECT id FROM agent_run WHERE status = 'queued'
     ORDER BY created_at, id FOR UPDATE SKIP LOCKED LIMIT 1
 )
-RETURNING id, project_id, created_by, prompt, model_id, skill_id, skill_version;
+RETURNING id, project_id, created_by, prompt, provider_id, model_id, skill_id, skill_version;
 
 -- name: HeartbeatAgentRun :exec
 UPDATE agent_run SET heartbeat_at = now() WHERE id = sqlc.arg(run_id) AND status = 'running';

@@ -48,14 +48,15 @@ class AgentRepository:
         )
 
     async def create_run(
-        self, project_id: UUID, user_id: UUID, prompt: str, model_id: str,
+        self, project_id: UUID, user_id: UUID, prompt: str, provider_id: str, model_id: str,
         skill_id: str | None, skill_version: str | None,
     ) -> AgentRun:
         try:
             async with self._engine.begin() as conn:
                 row = await AsyncQuerier(conn).create_agent_run(
                     CreateAgentRunParams(
-                        project_id=project_id, user_id=user_id, prompt=prompt, model_id=model_id,
+                        project_id=project_id, user_id=user_id, prompt=prompt,
+                        provider_id=provider_id, model_id=model_id,
                         skill_id=skill_id, skill_version=skill_version,
                     )
                 )
@@ -86,7 +87,7 @@ class AgentRepository:
             row = await AsyncQuerier(conn).claim_agent_run()
         return (
             ClaimedRun(
-                row.id, row.project_id, row.created_by, row.prompt, row.model_id,
+                row.id, row.project_id, row.created_by, row.prompt, row.provider_id, row.model_id,
                 row.skill_id, row.skill_version,
             )
             if row

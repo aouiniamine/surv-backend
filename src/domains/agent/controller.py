@@ -33,13 +33,7 @@ PREVIEW_HEADERS = {
     "Cache-Control": "private, no-store",
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
-    "Content-Security-Policy": (
-        "sandbox allow-scripts allow-forms allow-same-origin; "
-        "default-src 'self' {asset_origin} data: blob:; "
-        "script-src 'self' {asset_origin} https://cdn.jsdelivr.net 'unsafe-inline'; "
-        "style-src 'self' {asset_origin} 'unsafe-inline'; "
-        "connect-src 'none'; form-action 'none'; frame-ancestors {frame_ancestors}; base-uri 'none'"
-    ),
+    "Content-Security-Policy": ""
 }
 
 

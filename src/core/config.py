@@ -1,13 +1,16 @@
 import re
+from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=Path(__file__).resolve().parents[2] / ".env", extra="ignore"
+    )
 
     app_name: str = "Surv API"
     database_url: str = Field(..., description="PostgreSQL URL shared with dbmate")
@@ -22,8 +25,11 @@ class Settings(BaseSettings):
     jwt_secret_key: str = Field(..., min_length=32)
     cors_origins: str = "*"
     project_uploads_root: str = "./uploads/projects"
+    agent_provider: Literal["ollama", "gemini"] = "ollama"
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen3:4b"
+    gemini_api_key: SecretStr | None = None
+    gemini_model: str = "gemini-3.5-flash"
     agent_worker_enabled: bool = True
     project_environment: Literal["dev", "development", "staging", "production"] = "development"
     apps_domain: str | None = None
@@ -38,6 +44,10 @@ class Settings(BaseSettings):
                 raise ValueError("APPS_DOMAIN must be a domain such as example.com")
         if self.project_environment == "production" and not self.apps_domain:
             raise ValueError("APPS_DOMAIN is required in production")
+        if self.agent_provider == "gemini" and (
+            self.gemini_api_key is None or not self.gemini_api_key.get_secret_value().strip()
+        ):
+            raise ValueError("GEMINI_API_KEY is required when AGENT_PROVIDER=gemini")
         return self
 
     @property

@@ -13,7 +13,7 @@ from core.redis import redis_lifespan
 from core.responses import ApiResponse, register_error_handlers, success
 from domains.agent.controller import preview_router as agent_preview_router
 from domains.agent.controller import router as agent_router
-from domains.agent.providers.ollama import OllamaProvider
+from domains.agent.providers import create_model_provider
 from domains.agent.repo import AgentRepository
 from domains.agent.service import AgentService
 from domains.agent.worker import AgentWorker
@@ -52,9 +52,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 app.state.project_service = project_service
                 agent_repo = AgentRepository(engine)
                 agent_workspace = AgentWorkspace(project_storage)
-                agent_provider = OllamaProvider(settings.ollama_base_url, settings.ollama_model)
+                agent_provider = create_model_provider(settings)
                 app.state.agent_service = AgentService(
-                    agent_repo, agent_workspace, project_service, settings.ollama_model
+                    agent_repo, agent_workspace, project_service, agent_provider
                 )
                 app.state.user_service = UserService(user_repo)
                 app.state.organization_service = organization_service

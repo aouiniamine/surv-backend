@@ -60,6 +60,7 @@ class ClaimedRun:
     project_id: UUID
     created_by: UUID
     prompt: str
+    provider_id: str
     model_id: str
     skill_id: str | None
     skill_version: str | None

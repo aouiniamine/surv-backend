@@ -1,8 +1,10 @@
 import unittest
+from pathlib import Path
 
 from pydantic import ValidationError
 
 from core.config import Settings
+from domains.agent.providers import create_model_provider
 
 
 class SettingsTests(unittest.TestCase):
@@ -29,3 +31,21 @@ class SettingsTests(unittest.TestCase):
             "project_environment": "production", "apps_domain": "*.example.com",
         }))
         self.assertEqual(settings.apps_domain, "example.com")
+
+    def test_agent_provider_selection_and_gemini_key(self) -> None:
+        ollama = Settings(_env_file=None, **self.required)
+        self.assertEqual(create_model_provider(ollama).provider_id, "ollama")
+        with self.assertRaisesRegex(ValidationError, "GEMINI_API_KEY"):
+            Settings(_env_file=None, **(self.required | {"agent_provider": "gemini"}))
+        gemini = Settings(_env_file=None, **(self.required | {
+            "agent_provider": "gemini", "gemini_api_key": "test-key",
+        }))
+        provider = create_model_provider(gemini)
+        self.assertEqual(provider.provider_id, "gemini")
+        self.assertEqual(provider.model_id, gemini.gemini_model)
+        with self.assertRaises(ValidationError):
+            Settings(_env_file=None, **(self.required | {"agent_provider": "unknown"}))
+
+    def test_env_file_is_resolved_from_backend_directory(self) -> None:
+        expected = Path(__file__).resolve().parents[1] / ".env"
+        self.assertEqual(Settings.model_config["env_file"], expected)
