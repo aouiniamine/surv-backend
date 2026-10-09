@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncConnection
 from starlette.requests import Request
 
 from domains.organizations.errors import OrganizationNotFound
@@ -94,34 +93,27 @@ class ProjectService:
             )
         return project.public_id
 
-    async def publish_draft(
+    async def publish_dev_app(
         self,
         project_id: UUID,
         user_id: UUID,
-        expected_revision: str,
-        current_revision: Callable[[], Awaitable[tuple[str | None, bool]]],
-        disk_revision: Callable[[str], str],
+        has_active_run: Callable[[UUID], Awaitable[bool]],
+        matches_live: Callable[[str], bool],
         make_archive: Callable[[str], Path],
-        mark_published: Callable[[AsyncConnection], Awaitable[None]],
     ) -> str:
         project = await self.get(project_id, user_id)
         async with self._repo.project_lock(project.id):
             project = await self.require_deployable(project.public_id, user_id)
-            actual_revision, already_published = await current_revision()
-            if actual_revision != expected_revision:
-                raise ValueError("Draft revision changed")
-            if await asyncio.to_thread(disk_revision, project.public_id) != expected_revision:
-                raise ValueError("Draft files changed")
-            if already_published:
+            if await has_active_run(project.id):
+                raise ValueError("Agent run is active")
+            if await asyncio.to_thread(matches_live, project.public_id):
                 return project.public_id
             archive = await asyncio.to_thread(make_archive, project.public_id)
             try:
                 await self.storage.deploy_archive(
                     project.public_id,
                     archive,
-                    lambda previous: self._repo.record_deployment(
-                        project.id, previous, mark_published
-                    ),
+                    lambda previous: self._repo.record_deployment(project.id, previous),
                     backup_previous=project.status == "DEPLOYED",
                 )
             finally:

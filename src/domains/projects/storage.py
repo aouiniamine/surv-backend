@@ -241,7 +241,7 @@ class ProjectStorage:
         public = self.project_dir(public_id) / "public"
         return self._asset_from_directory(public, request_path)
 
-    def draft_asset(self, public_id: str, request_path: str) -> Path | None:
+    def dev_asset(self, public_id: str, request_path: str) -> Path | None:
         public = self.project_dir(public_id) / "dev" / "public"
         return self._asset_from_directory(public, request_path)
 
@@ -294,7 +294,7 @@ class ProjectStorage:
             f"/app/{public_id}/".encode(),
         )
 
-    def rewritten_draft_asset(self, public_id: str, asset: Path) -> bytes | None:
+    def rewritten_dev_asset(self, public_id: str, asset: Path) -> bytes | None:
         return self._rewritten_asset(
             asset,
             self.project_dir(public_id) / "dev" / "public",

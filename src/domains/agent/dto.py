@@ -3,16 +3,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from domains.agent.model import AgentChange, AgentDraft, AgentEvent, AgentRun
+from domains.agent.model import AgentChange, AgentEvent, AgentRun
 
 
 class CreateAgentRunRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=8000)
     skill_id: str | None = Field(default=None, max_length=80)
-
-
-class PublishAgentDraftRequest(BaseModel):
-    revision: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
 class AgentRunResponse(BaseModel):
@@ -24,7 +20,7 @@ class AgentRunResponse(BaseModel):
     skill_id: str | None
     skill_version: str | None
     error_message: str | None
-    draft_revision: str | None
+    result_revision: str | None
     created_at: datetime
     started_at: datetime | None
     completed_at: datetime | None
@@ -74,20 +70,3 @@ class AgentChangeDetailResponse(AgentChangeResponse):
             diff_text=change.diff_text,
         )
 
-
-class AgentDraftResponse(BaseModel):
-    revision: str
-    source_run_id: UUID
-    published: bool
-    created_at: datetime
-    preview_url: str
-
-    @classmethod
-    def from_draft(cls, draft: AgentDraft, preview_url: str) -> "AgentDraftResponse":
-        return cls(
-            revision=draft.revision,
-            source_run_id=draft.source_run_id,
-            published=draft.published_revision == draft.revision,
-            created_at=draft.created_at,
-            preview_url=preview_url,
-        )

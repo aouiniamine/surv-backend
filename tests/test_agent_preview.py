@@ -1,5 +1,4 @@
 import asyncio
-from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -9,15 +8,14 @@ from httpx import ASGITransport, AsyncClient
 from core.dependencies import current_user_id, get_agent_service
 from domains.agent.controller import preview_router, router
 from domains.agent.errors import AgentNotFound
-from domains.agent.model import AgentDraft, AgentProject
+from domains.agent.model import AgentProject
 from domains.organizations.model import OrganizationRole
 from domains.projects.storage import ProjectStorage
 
 
 class PreviewService:
-    def __init__(self, project, draft):
+    def __init__(self, project):
         self.project_value = project
-        self.draft_value = draft
         self.revoked = False
 
     async def project(self, project_id, user_id):
@@ -25,16 +23,12 @@ class PreviewService:
             raise AgentNotFound("Project not found")
         return self.project_value
 
-    async def draft(self, project_id, user_id, *, validate=True):
-        return self.draft_value
 
-
-def test_preview_requires_session_and_current_membership(tmp_path):
+def test_preview_uses_dev_files_without_draft_record_and_requires_membership(tmp_path):
     project_id = uuid4()
     user_id = uuid4()
     project = AgentProject(project_id, "abc1234", "CREATED", OrganizationRole.QA)
-    draft = AgentDraft("a" * 64, uuid4(), None, datetime.now(UTC))
-    service = PreviewService(project, draft)
+    service = PreviewService(project)
     public = tmp_path / "abc1234" / "dev" / "public"
     public.mkdir(parents=True)
     (public / "index.html").write_text(

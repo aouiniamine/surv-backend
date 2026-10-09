@@ -10,11 +10,11 @@ INSERT INTO agent_run (project_id, created_by, prompt, provider_id, model_id, sk
 VALUES (sqlc.arg(project_id), sqlc.arg(user_id), sqlc.arg(prompt),
         sqlc.arg(provider_id), sqlc.arg(model_id), sqlc.narg(skill_id), sqlc.narg(skill_version))
 RETURNING id, project_id, created_by, status, provider_id, model_id, error_message,
-          draft_revision, skill_id, skill_version, created_at, started_at, completed_at;
+          result_revision, skill_id, skill_version, created_at, started_at, completed_at;
 
 -- name: GetAgentRun :one
 SELECT ar.id, ar.project_id, ar.created_by, ar.status, ar.provider_id, ar.model_id,
-       ar.error_message, ar.draft_revision, ar.skill_id, ar.skill_version,
+       ar.error_message, ar.result_revision, ar.skill_id, ar.skill_version,
        ar.created_at, ar.started_at, ar.completed_at
 FROM agent_run AS ar
 JOIN projects AS p ON p.id = ar.project_id
@@ -24,7 +24,7 @@ WHERE ar.id = sqlc.arg(run_id) AND ar.project_id = sqlc.arg(project_id)
 
 -- name: ListAgentRuns :many
 SELECT ar.id, ar.project_id, ar.created_by, ar.status, ar.provider_id, ar.model_id,
-       ar.error_message, ar.draft_revision, ar.skill_id, ar.skill_version,
+       ar.error_message, ar.result_revision, ar.skill_id, ar.skill_version,
        ar.created_at, ar.started_at, ar.completed_at
 FROM agent_run AS ar
 JOIN projects AS p ON p.id = ar.project_id
@@ -47,8 +47,15 @@ UPDATE agent_run SET heartbeat_at = now() WHERE id = sqlc.arg(run_id) AND status
 -- name: FinishAgentRun :exec
 UPDATE agent_run
 SET status = sqlc.arg(status), error_message = sqlc.narg(error_message),
-    draft_revision = sqlc.narg(draft_revision), completed_at = now()
+    result_revision = sqlc.narg(result_revision), completed_at = now()
 WHERE id = sqlc.arg(run_id) AND status = 'running';
+
+-- name: CompleteAgentRun :one
+UPDATE agent_run
+SET status = 'succeeded', error_message = NULL,
+    result_revision = sqlc.arg(result_revision), completed_at = now()
+WHERE id = sqlc.arg(run_id) AND status = 'running'
+RETURNING id;
 
 -- name: CancelAgentRun :exec
 UPDATE agent_run
@@ -58,8 +65,11 @@ WHERE id = sqlc.arg(run_id) AND status IN ('queued', 'running');
 -- name: GetAgentRunStatus :one
 SELECT status FROM agent_run WHERE id = sqlc.arg(run_id);
 
--- name: LockAgentRunStatus :one
-SELECT status FROM agent_run WHERE id = sqlc.arg(run_id) FOR UPDATE;
+-- name: HasActiveAgentRun :one
+SELECT EXISTS (
+    SELECT 1 FROM agent_run
+    WHERE project_id = sqlc.arg(project_id) AND status IN ('queued', 'running')
+);
 
 -- name: FailStaleAgentRuns :exec
 UPDATE agent_run SET status = 'failed', error_message = 'Worker interrupted', completed_at = now()
@@ -102,24 +112,3 @@ JOIN projects AS p ON p.id = ar.project_id
 JOIN user_organization_relation AS r ON r.organization_id = p.organization_id
 WHERE c.id = sqlc.arg(change_id) AND c.run_id = sqlc.arg(run_id)
   AND ar.project_id = sqlc.arg(project_id) AND r.user_id = sqlc.arg(user_id);
-
--- name: UpsertAgentDraft :exec
-INSERT INTO agent_draft (project_id, revision, source_run_id)
-VALUES (sqlc.arg(project_id), sqlc.arg(revision), sqlc.arg(run_id))
-ON CONFLICT (project_id) DO UPDATE
-SET revision = EXCLUDED.revision, source_run_id = EXCLUDED.source_run_id,
-    published_revision = NULL, created_at = now();
-
--- name: MarkAgentDraftPublished :exec
-UPDATE agent_draft SET published_revision = sqlc.arg(revision)
-WHERE project_id = sqlc.arg(project_id) AND revision = sqlc.arg(revision);
-
--- name: ClearAgentDraftPublication :exec
-UPDATE agent_draft SET published_revision = NULL WHERE project_id = sqlc.arg(project_id);
-
--- name: GetAgentDraft :one
-SELECT d.revision, d.source_run_id, d.published_revision, d.created_at
-FROM agent_draft AS d
-JOIN projects AS p ON p.id = d.project_id
-JOIN user_organization_relation AS r ON r.organization_id = p.organization_id
-WHERE d.project_id = sqlc.arg(project_id) AND r.user_id = sqlc.arg(user_id);

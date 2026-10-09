@@ -2,7 +2,7 @@ import asyncio
 from uuid import UUID
 
 from domains.agent.errors import AgentAccessDenied, AgentConflict, AgentInvalid, AgentNotFound
-from domains.agent.model import AgentChange, AgentDraft, AgentEvent, AgentProject, AgentRun
+from domains.agent.model import AgentChange, AgentEvent, AgentProject, AgentRun
 from domains.agent.providers.base import ModelProvider
 from domains.agent.repo import AgentRepository
 from domains.agent.skills import select_skill
@@ -48,6 +48,14 @@ class AgentService:
             skill.id if skill else None, skill.version if skill else None,
         )
 
+    async def copy_live_app_to_dev(self, project_id: UUID, user_id: UUID) -> None:
+        project = await self.project(project_id, user_id, mutate=True)
+        if project.status != "DEPLOYED":
+            raise AgentConflict("Project has no deployed application")
+        if await self._repo.has_active_run(project_id):
+            raise AgentConflict("Agent run is active")
+        await asyncio.to_thread(self._workspace.copy_live_app_to_dev, project.public_id)
+
     async def run(self, project_id: UUID, run_id: UUID, user_id: UUID) -> AgentRun:
         await self.project(project_id, user_id)
         run = await self._repo.get_run(project_id, run_id, user_id)
@@ -87,44 +95,12 @@ class AgentService:
             raise AgentNotFound("Change not found")
         return change
 
-    async def draft(
-        self, project_id: UUID, user_id: UUID, *, validate: bool = True
-    ) -> AgentDraft | None:
-        project = await self.project(project_id, user_id)
-        draft = await self._repo.get_draft(project_id, user_id)
-        if draft is not None and validate:
-            try:
-                actual = await asyncio.to_thread(self._workspace.revision, project.public_id)
-            except AgentInvalid as exc:
-                raise AgentConflict("Draft storage is unavailable") from exc
-            if actual != draft.revision:
-                raise AgentConflict("Draft storage does not match its recorded revision")
-        return draft
-
-    async def publish(self, project_id: UUID, user_id: UUID, revision: str) -> str:
+    async def publish(self, project_id: UUID, user_id: UUID) -> str:
         await self.project(project_id, user_id, mutate=True)
-        draft = await self._repo.get_draft(project_id, user_id)
-        if draft is None:
-            raise AgentNotFound("Draft not found")
-        if draft.revision != revision:
-            raise AgentConflict("Draft revision changed")
-
-        async def current_revision() -> tuple[str | None, bool]:
-            current = await self._repo.get_draft(project_id, user_id)
-            return (
-                current.revision,
-                current.published_revision == revision,
-            ) if current else (None, False)
-
         try:
-            return await self._projects.publish_draft(
-                project_id,
-                user_id,
-                revision,
-                current_revision,
-                self._workspace.revision,
-                lambda public_id: self._workspace.archive(public_id, draft.source_run_id),
-                lambda conn: self._repo.mark_published(conn, project_id, revision),
+            return await self._projects.publish_dev_app(
+                project_id, user_id, self._repo.has_active_run,
+                self._workspace.matches_live, self._workspace.archive,
             )
         except ValueError as exc:
-            raise AgentConflict("Draft revision changed") from exc
+            raise AgentConflict(str(exc)) from exc

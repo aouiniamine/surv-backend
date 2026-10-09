@@ -1,12 +1,11 @@
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from domains.agent.errors import AgentConflict
 from domains.agent.model import (
     AgentChange,
-    AgentDraft,
     AgentEvent,
     AgentProject,
     AgentRun,
@@ -27,7 +26,7 @@ def _run(row: object) -> AgentRun:
         skill_id=row.skill_id,
         skill_version=row.skill_version,
         error_message=row.error_message,
-        draft_revision=row.draft_revision,
+        result_revision=row.result_revision,
         created_at=row.created_at,
         started_at=row.started_at,
         completed_at=row.completed_at,
@@ -98,19 +97,23 @@ class AgentRepository:
         async with self._engine.connect() as conn:
             return await AsyncQuerier(conn).get_agent_run_status(run_id=run_id)
 
+    async def has_active_run(self, project_id: UUID) -> bool:
+        async with self._engine.connect() as conn:
+            return bool(await AsyncQuerier(conn).has_active_agent_run(project_id=project_id))
+
     async def heartbeat(self, run_id: UUID) -> None:
         async with self._engine.begin() as conn:
             await AsyncQuerier(conn).heartbeat_agent_run(run_id=run_id)
 
     async def finish(
-        self, run_id: UUID, status: str, error_message: str | None, draft_revision: str | None
+        self, run_id: UUID, status: str, error_message: str | None, result_revision: str | None
     ) -> None:
         async with self._engine.begin() as conn:
             await AsyncQuerier(conn).finish_agent_run(
                 run_id=run_id,
                 status=status,
                 error_message=error_message,
-                draft_revision=draft_revision,
+                result_revision=result_revision,
             )
 
     async def cancel(self, run_id: UUID) -> None:
@@ -172,36 +175,9 @@ class AgentRepository:
             )
         return AgentChange(row.id, row.path, row.change_type, row.diff_text) if row else None
 
-    async def get_draft(self, project_id: UUID, user_id: UUID) -> AgentDraft | None:
-        async with self._engine.connect() as conn:
-            row = await AsyncQuerier(conn).get_agent_draft(
-                project_id=project_id, user_id=user_id
-            )
-        return (
-            AgentDraft(row.revision, row.source_run_id, row.published_revision, row.created_at)
-            if row else None
-        )
-
-    async def mark_published(
-        self, conn: AsyncConnection, project_id: UUID, revision: str
-    ) -> None:
-        await AsyncQuerier(conn).mark_agent_draft_published(
-            project_id=project_id, revision=revision
-        )
-
-    async def set_draft(self, project_id: UUID, run_id: UUID, revision: str) -> None:
+    async def complete_run(self, run_id: UUID, revision: str) -> bool:
         async with self._engine.begin() as conn:
-            await AsyncQuerier(conn).upsert_agent_draft(
-                project_id=project_id, run_id=run_id, revision=revision
+            result = await AsyncQuerier(conn).complete_agent_run(
+                run_id=run_id, result_revision=revision
             )
-
-    async def complete_draft(self, project_id: UUID, run_id: UUID, revision: str) -> bool:
-        async with self._engine.begin() as conn:
-            query = AsyncQuerier(conn)
-            if await query.lock_agent_run_status(run_id=run_id) != "running":
-                return False
-            await query.upsert_agent_draft(project_id=project_id, run_id=run_id, revision=revision)
-            await query.finish_agent_run(
-                run_id=run_id, status="succeeded", error_message=None, draft_revision=revision
-            )
-        return True
+        return result is not None

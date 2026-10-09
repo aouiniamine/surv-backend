@@ -55,8 +55,12 @@ class ClaimAgentRunRow:
     skill_version: Optional[str]
 
 
-CLEAR_AGENT_DRAFT_PUBLICATION = """-- name: clear_agent_draft_publication \\:exec
-UPDATE agent_draft SET published_revision = NULL WHERE project_id = :p1
+COMPLETE_AGENT_RUN = """-- name: complete_agent_run \\:one
+UPDATE agent_run
+SET status = 'succeeded', error_message = NULL,
+    result_revision = :p1, completed_at = now()
+WHERE id = :p2 AND status = 'running'
+RETURNING id
 """
 
 
@@ -65,7 +69,7 @@ INSERT INTO agent_run (project_id, created_by, prompt, provider_id, model_id, sk
 VALUES (:p1, :p2, :p3,
         :p4, :p5, :p6, :p7)
 RETURNING id, project_id, created_by, status, provider_id, model_id, error_message,
-          draft_revision, skill_id, skill_version, created_at, started_at, completed_at
+          result_revision, skill_id, skill_version, created_at, started_at, completed_at
 """
 
 
@@ -89,7 +93,7 @@ class CreateAgentRunRow:
     provider_id: str
     model_id: str
     error_message: Optional[str]
-    draft_revision: Optional[str]
+    result_revision: Optional[str]
     skill_id: Optional[str]
     skill_version: Optional[str]
     created_at: datetime.datetime
@@ -106,7 +110,7 @@ WHERE status = 'running' AND heartbeat_at < now() - interval '2 minutes'
 FINISH_AGENT_RUN = """-- name: finish_agent_run \\:exec
 UPDATE agent_run
 SET status = :p1, error_message = :p2,
-    draft_revision = :p3, completed_at = now()
+    result_revision = :p3, completed_at = now()
 WHERE id = :p4 AND status = 'running'
 """
 
@@ -130,23 +134,6 @@ class GetAgentChangeRow:
     diff_text: Optional[str]
 
 
-GET_AGENT_DRAFT = """-- name: get_agent_draft \\:one
-SELECT d.revision, d.source_run_id, d.published_revision, d.created_at
-FROM agent_draft AS d
-JOIN projects AS p ON p.id = d.project_id
-JOIN user_organization_relation AS r ON r.organization_id = p.organization_id
-WHERE d.project_id = :p1 AND r.user_id = :p2
-"""
-
-
-@dataclasses.dataclass()
-class GetAgentDraftRow:
-    revision: str
-    source_run_id: uuid.UUID
-    published_revision: Optional[str]
-    created_at: datetime.datetime
-
-
 GET_AGENT_PROJECT = """-- name: get_agent_project \\:one
 SELECT p.id, p.public_id, p.status, r.role
 FROM projects AS p
@@ -166,7 +153,7 @@ class GetAgentProjectRow:
 
 GET_AGENT_RUN = """-- name: get_agent_run \\:one
 SELECT ar.id, ar.project_id, ar.created_by, ar.status, ar.provider_id, ar.model_id,
-       ar.error_message, ar.draft_revision, ar.skill_id, ar.skill_version,
+       ar.error_message, ar.result_revision, ar.skill_id, ar.skill_version,
        ar.created_at, ar.started_at, ar.completed_at
 FROM agent_run AS ar
 JOIN projects AS p ON p.id = ar.project_id
@@ -185,7 +172,7 @@ class GetAgentRunRow:
     provider_id: str
     model_id: str
     error_message: Optional[str]
-    draft_revision: Optional[str]
+    result_revision: Optional[str]
     skill_id: Optional[str]
     skill_version: Optional[str]
     created_at: datetime.datetime
@@ -195,6 +182,14 @@ class GetAgentRunRow:
 
 GET_AGENT_RUN_STATUS = """-- name: get_agent_run_status \\:one
 SELECT status FROM agent_run WHERE id = :p1
+"""
+
+
+HAS_ACTIVE_AGENT_RUN = """-- name: has_active_agent_run \\:one
+SELECT EXISTS (
+    SELECT 1 FROM agent_run
+    WHERE project_id = :p1 AND status IN ('queued', 'running')
+)
 """
 
 
@@ -245,7 +240,7 @@ class ListAgentEventsRow:
 
 LIST_AGENT_RUNS = """-- name: list_agent_runs \\:many
 SELECT ar.id, ar.project_id, ar.created_by, ar.status, ar.provider_id, ar.model_id,
-       ar.error_message, ar.draft_revision, ar.skill_id, ar.skill_version,
+       ar.error_message, ar.result_revision, ar.skill_id, ar.skill_version,
        ar.created_at, ar.started_at, ar.completed_at
 FROM agent_run AS ar
 JOIN projects AS p ON p.id = ar.project_id
@@ -265,32 +260,12 @@ class ListAgentRunsRow:
     provider_id: str
     model_id: str
     error_message: Optional[str]
-    draft_revision: Optional[str]
+    result_revision: Optional[str]
     skill_id: Optional[str]
     skill_version: Optional[str]
     created_at: datetime.datetime
     started_at: Optional[datetime.datetime]
     completed_at: Optional[datetime.datetime]
-
-
-LOCK_AGENT_RUN_STATUS = """-- name: lock_agent_run_status \\:one
-SELECT status FROM agent_run WHERE id = :p1 FOR UPDATE
-"""
-
-
-MARK_AGENT_DRAFT_PUBLISHED = """-- name: mark_agent_draft_published \\:exec
-UPDATE agent_draft SET published_revision = :p1
-WHERE project_id = :p2 AND revision = :p1
-"""
-
-
-UPSERT_AGENT_DRAFT = """-- name: upsert_agent_draft \\:exec
-INSERT INTO agent_draft (project_id, revision, source_run_id)
-VALUES (:p1, :p2, :p3)
-ON CONFLICT (project_id) DO UPDATE
-SET revision = EXCLUDED.revision, source_run_id = EXCLUDED.source_run_id,
-    published_revision = NULL, created_at = now()
-"""
 
 
 class AsyncQuerier:
@@ -329,8 +304,11 @@ class AsyncQuerier:
             skill_version=row[7],
         )
 
-    async def clear_agent_draft_publication(self, *, project_id: uuid.UUID) -> None:
-        await self._conn.execute(sqlalchemy.text(CLEAR_AGENT_DRAFT_PUBLICATION), {"p1": project_id})
+    async def complete_agent_run(self, *, result_revision: Optional[str], run_id: uuid.UUID) -> Optional[uuid.UUID]:
+        row = (await self._conn.execute(sqlalchemy.text(COMPLETE_AGENT_RUN), {"p1": result_revision, "p2": run_id})).first()
+        if row is None:
+            return None
+        return row[0]
 
     async def create_agent_run(self, arg: CreateAgentRunParams) -> Optional[CreateAgentRunRow]:
         row = (await self._conn.execute(sqlalchemy.text(CREATE_AGENT_RUN), {
@@ -352,7 +330,7 @@ class AsyncQuerier:
             provider_id=row[4],
             model_id=row[5],
             error_message=row[6],
-            draft_revision=row[7],
+            result_revision=row[7],
             skill_id=row[8],
             skill_version=row[9],
             created_at=row[10],
@@ -363,11 +341,11 @@ class AsyncQuerier:
     async def fail_stale_agent_runs(self) -> None:
         await self._conn.execute(sqlalchemy.text(FAIL_STALE_AGENT_RUNS))
 
-    async def finish_agent_run(self, *, status: str, error_message: Optional[str], draft_revision: Optional[str], run_id: uuid.UUID) -> None:
+    async def finish_agent_run(self, *, status: str, error_message: Optional[str], result_revision: Optional[str], run_id: uuid.UUID) -> None:
         await self._conn.execute(sqlalchemy.text(FINISH_AGENT_RUN), {
             "p1": status,
             "p2": error_message,
-            "p3": draft_revision,
+            "p3": result_revision,
             "p4": run_id,
         })
 
@@ -385,17 +363,6 @@ class AsyncQuerier:
             path=row[1],
             change_type=row[2],
             diff_text=row[3],
-        )
-
-    async def get_agent_draft(self, *, project_id: uuid.UUID, user_id: uuid.UUID) -> Optional[GetAgentDraftRow]:
-        row = (await self._conn.execute(sqlalchemy.text(GET_AGENT_DRAFT), {"p1": project_id, "p2": user_id})).first()
-        if row is None:
-            return None
-        return GetAgentDraftRow(
-            revision=row[0],
-            source_run_id=row[1],
-            published_revision=row[2],
-            created_at=row[3],
         )
 
     async def get_agent_project(self, *, project_id: uuid.UUID, user_id: uuid.UUID) -> Optional[GetAgentProjectRow]:
@@ -421,7 +388,7 @@ class AsyncQuerier:
             provider_id=row[4],
             model_id=row[5],
             error_message=row[6],
-            draft_revision=row[7],
+            result_revision=row[7],
             skill_id=row[8],
             skill_version=row[9],
             created_at=row[10],
@@ -431,6 +398,12 @@ class AsyncQuerier:
 
     async def get_agent_run_status(self, *, run_id: uuid.UUID) -> Optional[str]:
         row = (await self._conn.execute(sqlalchemy.text(GET_AGENT_RUN_STATUS), {"p1": run_id})).first()
+        if row is None:
+            return None
+        return row[0]
+
+    async def has_active_agent_run(self, *, project_id: uuid.UUID) -> Optional[bool]:
+        row = (await self._conn.execute(sqlalchemy.text(HAS_ACTIVE_AGENT_RUN), {"p1": project_id})).first()
         if row is None:
             return None
         return row[0]
@@ -474,22 +447,10 @@ class AsyncQuerier:
                 provider_id=row[4],
                 model_id=row[5],
                 error_message=row[6],
-                draft_revision=row[7],
+                result_revision=row[7],
                 skill_id=row[8],
                 skill_version=row[9],
                 created_at=row[10],
                 started_at=row[11],
                 completed_at=row[12],
             )
-
-    async def lock_agent_run_status(self, *, run_id: uuid.UUID) -> Optional[str]:
-        row = (await self._conn.execute(sqlalchemy.text(LOCK_AGENT_RUN_STATUS), {"p1": run_id})).first()
-        if row is None:
-            return None
-        return row[0]
-
-    async def mark_agent_draft_published(self, *, revision: Optional[str], project_id: uuid.UUID) -> None:
-        await self._conn.execute(sqlalchemy.text(MARK_AGENT_DRAFT_PUBLISHED), {"p1": revision, "p2": project_id})
-
-    async def upsert_agent_draft(self, *, project_id: uuid.UUID, revision: str, run_id: uuid.UUID) -> None:
-        await self._conn.execute(sqlalchemy.text(UPSERT_AGENT_DRAFT), {"p1": project_id, "p2": revision, "p3": run_id})

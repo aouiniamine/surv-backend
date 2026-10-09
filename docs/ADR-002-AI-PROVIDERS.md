@@ -1,5 +1,7 @@
 # ADR-002: AI providers for Surv Agent
 
+> **Current implementation update (9 October 2026):** Surv Agent now reads and edits `{public_id}/dev/public` directly. It no longer has a draft record, candidate tree, revision-gated draft publish, or `/draft` endpoint. Failed or cancelled runs can leave edits in the dev app. The live app changes only through explicit publish. See [the current architecture](SURV_AGENT_IMPLEMENTATION_ARCHITECTURE.md) for the implemented flow; older draft and candidate descriptions below record the original design.
+
 - **Status:** Accepted; Ollama and Gemini adapters implemented
 - **Date:** 2026-10-07
 - **Updated:** 2026-10-08

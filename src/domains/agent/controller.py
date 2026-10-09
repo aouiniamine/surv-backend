@@ -11,17 +11,14 @@ from core.responses import ApiResponse, success
 from domains.agent.dto import (
     AgentChangeDetailResponse,
     AgentChangeResponse,
-    AgentDraftResponse,
     AgentEventResponse,
     AgentRunResponse,
     CreateAgentRunRequest,
-    PublishAgentDraftRequest,
 )
 from domains.agent.errors import AgentAccessDenied, AgentConflict, AgentInvalid, AgentNotFound
 from domains.agent.preview_auth import (
     allowed_preview_origins,
     issue_preview_session,
-    preview_url,
     require_preview_session,
 )
 from domains.agent.service import AgentService
@@ -33,7 +30,14 @@ PREVIEW_HEADERS = {
     "Cache-Control": "private, no-store",
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
-    "Content-Security-Policy": ""
+    "Content-Security-Policy": (
+        "default-src 'none'; base-uri 'none'; frame-ancestors {frame_ancestors}; "
+        "sandbox allow-scripts allow-forms allow-same-origin; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "img-src 'self' data: blob: https:; font-src 'self' data: https:; "
+        "connect-src 'self' {asset_origin}"
+    ),
 }
 
 
@@ -163,24 +167,17 @@ async def get_change(
     return success(AgentChangeDetailResponse.from_change(change), "Agent change loaded")
 
 
-@router.get("/{project_id}/draft", response_model=ApiResponse[AgentDraftResponse])
-async def get_draft(
+@router.post("/{project_id}/dev/from-deployment", response_model=ApiResponse[dict[str, bool]])
+async def copy_live_app_to_dev(
     project_id: UUID,
-    request: Request,
     user_id: UUID = Depends(current_user_id),
     service: AgentService = Depends(get_agent_service),
-) -> ApiResponse[AgentDraftResponse]:
+) -> ApiResponse[dict[str, bool]]:
     try:
-        project = await service.project(project_id, user_id)
-        draft = await service.draft(project_id, user_id)
-    except (AgentNotFound, AgentConflict) as exc:
+        await service.copy_live_app_to_dev(project_id, user_id)
+    except (AgentNotFound, AgentAccessDenied, AgentConflict, AgentInvalid) as exc:
         raise _error(exc) from exc
-    if draft is None:
-        raise HTTPException(status_code=404, detail="Draft not found")
-    return success(
-        AgentDraftResponse.from_draft(draft, preview_url(request, project.public_id)),
-        "Draft loaded",
-    )
+    return success({"copied": True}, "Live app copied to dev app")
 
 
 @router.post("/{project_id}/preview-session", response_model=ApiResponse[dict[str, str]])
@@ -214,11 +211,11 @@ async def preview_asset(
     asset_path: str = "",
 ) -> Response:
     storage = request.app.state.project_storage
-    asset = await asyncio.to_thread(storage.draft_asset, public_id, asset_path)
+    asset = await asyncio.to_thread(storage.dev_asset, public_id, asset_path)
     if asset is None:
-        raise HTTPException(status_code=404, detail="Draft asset not found")
+        raise HTTPException(status_code=404, detail="Dev asset not found")
     rewritten = await asyncio.to_thread(
-        storage.rewritten_draft_asset, public_id, asset
+        storage.rewritten_dev_asset, public_id, asset
     )
     origins = allowed_preview_origins(request)
     headers = dict(PREVIEW_HEADERS)
@@ -238,15 +235,14 @@ async def preview_asset(
 
 
 @router.post("/{project_id}/publish", response_model=ApiResponse[dict[str, str]])
-async def publish_draft(
+async def publish_dev_app(
     project_id: UUID,
-    payload: PublishAgentDraftRequest,
     request: Request,
     user_id: UUID = Depends(current_user_id),
     service: AgentService = Depends(get_agent_service),
 ) -> ApiResponse[dict[str, str]]:
     try:
-        public_id = await service.publish(project_id, user_id, payload.revision)
+        public_id = await service.publish(project_id, user_id)
     except (AgentNotFound, AgentAccessDenied, AgentConflict, AgentInvalid) as exc:
         raise _error(exc) from exc
-    return success({"url": project_app_url(request, public_id)}, "Draft published")
+    return success({"url": project_app_url(request, public_id)}, "Dev app published")

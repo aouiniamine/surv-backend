@@ -24,7 +24,7 @@ class AgentRun:
     skill_id: str | None
     skill_version: str | None
     error_message: str | None
-    draft_revision: str | None
+    result_revision: str | None
     created_at: datetime
     started_at: datetime | None
     completed_at: datetime | None
@@ -44,14 +44,6 @@ class AgentChange:
     path: str
     change_type: str
     diff_text: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class AgentDraft:
-    revision: str
-    source_run_id: UUID
-    published_revision: str | None
-    created_at: datetime
 
 
 @dataclass(frozen=True, slots=True)

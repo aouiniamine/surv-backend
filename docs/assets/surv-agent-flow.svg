@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1120" viewBox="0 0 1600 1120" role="img" aria-labelledby="title desc">
   <title id="title">Surv Agent implementation flow</title>
-  <desc id="desc">A project member starts a run. The API queues it in PostgreSQL, a worker calls Ollama and edits an isolated candidate, then records diffs and commits a private draft. The client reviews text, diffs, and an authenticated preview. A separate publish action verifies the draft revision and deploys it to the live project.</desc>
+  <desc id="desc">A project member starts a run. The API queues it in PostgreSQL. A worker uses the configured model to edit dev/public directly and records file diffs. The client reviews output and the authenticated dev preview. A separate publish action deploys the current dev files to the live project.</desc>
   <defs>
     <style>
       .bg{fill:#f6f8fc}.ink{fill:#132339}.muted{fill:#4d6279}.line{stroke:#66809c;stroke-width:3;fill:none;marker-end:url(#arrow)}.dash{stroke-dasharray:9 8}.box{fill:white;stroke:#ced9e7;stroke-width:2}.blue{fill:#e8f1ff;stroke:#8db4eb;stroke-width:2}.purple{fill:#f0eaff;stroke:#b09ae1;stroke-width:2}.green{fill:#e7f6ec;stroke:#8ac9a0;stroke-width:2}.amber{fill:#fff3dd;stroke:#e4bd70;stroke-width:2}.red{fill:#fff0ef;stroke:#e3aaa3;stroke-width:2}.h{font:700 24px system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;fill:#132339}.p{font:17px system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;fill:#31465d}.small{font:15px system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;fill:#536a81}.section{font:700 18px system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;fill:#526981;letter-spacing:2px}.title{font:700 40px system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;fill:#132339}.subtitle{font:19px system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;fill:#536a81}
@@ -9,7 +9,7 @@
   </defs>
   <rect class="bg" width="1600" height="1120"/>
   <text x="72" y="70" class="title">Surv Agent flow</text>
-  <text x="72" y="106" class="subtitle">Implemented request, draft review, and explicit publication paths</text>
+  <text x="72" y="106" class="subtitle">Direct dev/public editing, review, and explicit publication</text>
   <text x="92" y="153" class="section">REQUEST &amp; EXECUTION</text>
   <text x="860" y="153" class="section">REVIEW &amp; RELEASE</text>
 
@@ -26,14 +26,14 @@
   <text x="104" y="557" class="p">One active run per project; worker claims with SKIP LOCKED</text>
 
   <rect x="72" y="638" width="650" height="125" rx="18" class="box"/>
-  <text x="104" y="679" class="h">4 · Worker + local Ollama</text>
+  <text x="104" y="679" class="h">4 · Worker + configured model</text>
   <text x="104" y="711" class="p">Stream text; run bounded list/read/write/delete tools</text>
-  <text x="104" y="738" class="small">Candidate: {public_id}/dev/.runs/{run_id}/workspace</text>
+  <text x="104" y="738" class="small">File tools: {public_id}/dev/public</text>
 
   <rect x="72" y="814" width="650" height="115" rx="18" class="amber"/>
-  <text x="104" y="855" class="h">5 · Diff and draft commit</text>
-  <text x="104" y="887" class="p">Store changes; lock project; swap dev/workspace</text>
-  <text x="104" y="912" class="small">Commit dev/public + agent_draft revision; live public untouched</text>
+  <text x="104" y="855" class="h">5 · Diff and run completion</text>
+  <text x="104" y="887" class="p">Compare baseline to dev/public; store file changes</text>
+  <text x="104" y="912" class="small">Record result revision; live public remains untouched</text>
 
   <path d="M397 280 V327" class="line"/><path d="M397 434 V481" class="line"/><path d="M397 588 V635" class="line"/><path d="M397 763 V811" class="line"/>
 
@@ -46,14 +46,14 @@
   <text x="880" y="403" class="p">Review file list and selected unified diff</text>
 
   <rect x="848" y="484" width="680" height="125" rx="18" class="green"/>
-  <text x="880" y="525" class="h">Private draft preview</text>
+  <text x="880" y="525" class="h">Private dev app preview</text>
   <text x="880" y="557" class="p">10-minute scoped cookie; iframe or new window</text>
   <text x="880" y="584" class="small">GET /app/{public_id}/dev/ serves dev/public</text>
 
   <rect x="848" y="660" width="680" height="125" rx="18" class="amber"/>
   <text x="880" y="701" class="h">Explicit publish</text>
-  <text x="880" y="733" class="p">Admin or Developer submits exact draft revision</text>
-  <text x="880" y="760" class="small">Lock project → verify DB + disk digest → archive</text>
+  <text x="880" y="733" class="p">Admin or Developer publishes current dev files</text>
+  <text x="880" y="760" class="small">Lock project → reject active run → archive dev/public</text>
 
   <rect x="848" y="836" width="680" height="93" rx="18" class="green"/>
   <text x="880" y="876" class="h">Live deployment + backup</text>
@@ -67,5 +67,5 @@
 
   <rect x="72" y="978" width="1456" height="84" rx="18" class="red"/>
   <text x="104" y="1013" class="h">Failure or cancellation</text>
-  <text x="104" y="1044" class="p">Run ends without publishing; errors and available candidate diffs remain reviewable. Draft rollback/reconciliation protects the prior committed revision.</text>
+  <text x="104" y="1044" class="p">Run ends without publishing; edits remain in dev/public for review. Live public remains unchanged.</text>
 </svg>

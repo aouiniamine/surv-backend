@@ -1,5 +1,7 @@
 # Surv Agent integration: design and implementation plan
 
+> **Current implementation update (9 October 2026):** Surv Agent now reads and edits `{public_id}/dev/public` directly. It no longer has a draft record, candidate tree, revision-gated draft publish, or `/draft` endpoint. Failed or cancelled runs can leave edits in the dev app. The live app changes only through explicit publish. See [the current architecture](SURV_AGENT_IMPLEMENTATION_ARCHITECTURE.md) for the implemented flow; older draft and candidate descriptions below record the original design.
+
 **Status:** Planning document · **Date:** 2026-10-07  
 **Decisions:** [Agent integration](ADR-001-SURV-AGENT-INTEGRATION.md) · [AI providers](ADR-002-AI-PROVIDERS.md)  
 **Current deployment contract:** [Deployments and backups](APPS_DEPLOYMENTS_AND_BACKUPS.md)
@@ -12,7 +14,7 @@ Let an authorized organization member ask Surv Agent to create or revise a **sta
 
 Implementation note (October 2026): the backend agent domain, PostgreSQL queue and review records, bounded static-file tools, Ollama adapter, draft workspace, preview API, client review panel, and explicit publish flow are implemented. Impeccable is offered as a versioned, reviewed guidance excerpt; the original launcher and scripts are not executed with tenant files. A local `qwen3:4b` run created a draft through the full worker loop in an isolated temporary workspace. The production preview origin/cookie topology, broader browser and concurrency tests, operational retention, and a real project acceptance run remain release gates.
 
-The user-facing project ID is `projects.id` (UUID). Storage uses `projects.public_id` (seven characters). Thus the requested `<project_id>/dev/public` maps to `${PROJECT_UPLOADS_ROOT}/{public_id}/dev/public/` after an authorized database lookup. The current live tree remains `${PROJECT_UPLOADS_ROOT}/{public_id}/public/`. `dev/public/` contains the built static site; optional source and dependencies live in `dev/workspace/`. A deployed ZIP contains built files, not necessarily editable source. New agent projects start from a controlled template; editing a previously uploaded app from source requires a separate source import. Static-file-only edits may use the deployed build as read-only context if authorized.
+The user-facing project ID is `projects.id` (UUID). Storage uses `projects.public_id` (seven characters). Thus the requested `<project_id>/dev/public` maps to `${PROJECT_UPLOADS_ROOT}/{public_id}/dev/public/` after an authorized database lookup. The current live tree remains `${PROJECT_UPLOADS_ROOT}/{public_id}/public/`. `dev/public/` contains the draft static site. Run candidates stay under `dev/.runs/`. A deployed ZIP contains built files, not necessarily editable source. New agent projects start from a controlled template; a deployed static app can be copied into `dev/public/` to seed the next run.
 
 ## Component design
 
@@ -24,7 +26,7 @@ Project page
   -> private draft preview ----> AgentService -> project static-serving primitive
 
 Worker -> local Ollama adapter -> model tool request -> Surv tool validator
-                                             -> isolated runner (dev/workspace)
+                                             -> isolated candidate (dev/.runs/{run_id}/candidate)
                                              -> candidate build -> validator
                                              -> revision-checked draft replacement
 
@@ -55,7 +57,7 @@ Cancellation is idempotent. A worker lease/heartbeat identifies abandoned `runni
 
 Stream the agent's user-visible output text as ordered events with a monotonic sequence; persist those events so the client can resume after a reconnect using its last sequence. Separate model text from tool-action summaries and error/status events. Redact credentials and sensitive file content before persistence; cap each event and total run output. Do not expose raw chain-of-thought or unrestricted tool stdout. The client shows the text in a run transcript, with a clear running/failed/completed state.
 
-Before a run edits files, snapshot the project's current editable source. Work on a private candidate copy. When the run stops, compare that baseline with the candidate and produce a per-file manifest: added, modified, deleted (and renamed if reliably detected). Store a bounded unified diff for text files and a metadata-only entry for binary or oversized files. Paths are relative to `dev/workspace/`; never emit absolute server paths. This is a **run-baseline-to-candidate source diff**, not a comparison against the deployed `public/` tree. Keep the diff for a failed run if edits were made, even though its candidate is not installed as the latest draft. Run artifacts are access controlled and expire by policy.
+Before a run edits files, snapshot the project's current editable source. Work on a private candidate copy. When the run stops, compare that baseline with the candidate and produce a per-file manifest: added, modified, deleted (and renamed if reliably detected). Store a bounded unified diff for text files and a metadata-only entry for binary or oversized files. Paths are relative to the run candidate; never emit absolute server paths. This is a **run-baseline-to-candidate source diff**, not a comparison against the deployed `public/` tree. Keep the diff for a failed run if edits were made, even though its candidate is not installed as the latest draft. Run artifacts are access controlled and expire by policy.
 
 ### API sketch
 
@@ -72,12 +74,12 @@ The paths below are proposed contracts owned by the agent router, mounted at `/v
 | `POST /v1/agent/{project_id}/runs/{run_id}/cancel` | Admin, Developer | Request cancellation; return current state. |
 | `GET /v1/agent/{project_id}/draft` | Member | Current draft revision and preview availability. |
 | `POST /v1/agent/{project_id}/preview-session` | Member | Establish a short-lived, project-scoped preview session. |
-| `GET /app/{public_id}/dev/{asset_path:path}` | Preview session | Serve only the current validated draft and its assets, including the root iframe at `/app/{public_id}/dev/`. |
+| `GET /app/{public_id}/dev/{asset_path:path}` | Preview session | Serve the current `dev/public/` files, including the root iframe at `/app/{public_id}/dev/`. |
 | `POST /v1/agent/{project_id}/publish` | Admin, Developer | Require `{revision}` and an idempotency key; return live URL or a conflict. |
 
 Use `404` for an inaccessible/nonexistent project where disclosure would matter, `409` for an active run or stale draft revision, and `422` for an invalid prompt/skill/model or invalid draft. Cap prompt size and event payloads. The preview-session endpoint must never put the normal JWT in a URL. Serve preview assets from an isolated origin with a short-lived HttpOnly, Secure, project-scoped session cookie and `Cache-Control: private, no-store`; verify current project membership on each asset request so revocation takes effect. Prevent referrer leakage and frame access to the console origin. If the deployment topology cannot support reliable authenticated iframe assets (including browser third-party-cookie restrictions), ship a same-origin preview proxy/BFF before exposing preview. Do not weaken the preview to a public route or long-lived URL token.
 
-### Workspace and publication
+### Draft files and publication
 
 Use `ProjectStorage.project_dir(public_id)` only after the project lookup. Suggested disk layout:
 
@@ -87,14 +89,13 @@ Use `ProjectStorage.project_dir(public_id)` only after the project lookup. Sugge
   current.zip             # live archive
   backups/                # existing backups
   dev/
-    workspace/            # editable project source
     public/               # latest validated draft
-    .runs/{run_id}/        # private candidate and temporary files
+    .runs/{run_id}/candidate/ # private candidate files
 ```
 
-The runner edits only its private candidate copy of the project workspace and build directory; the persisted `dev/workspace/` remains the baseline until a successful run is installed. A model tool cannot address `public/`, `current.zip`, backups, another project, or the backend repository. Enforce this in the host tool dispatcher and at the process/container mount boundary. Reject traversal, symlinks, hard links, special files, and paths that escape after resolution. Do not trust `cwd` or model-provided paths as a security boundary. Restrict network egress, subprocess duration, CPU, memory, file count, disk bytes, and output bytes. Mount approved skills read-only. Avoid shared `node_modules` or build caches across tenants unless safely isolated.
+The runner edits only its private candidate copy of `dev/public/`; the committed draft remains the baseline until a successful run is installed. A model tool cannot address `public/`, `current.zip`, backups, another project, or the backend repository. Enforce this in the host tool dispatcher and at the process/container mount boundary. Reject traversal, symlinks, hard links, special files, and paths that escape after resolution. Do not trust `cwd` or model-provided paths as a security boundary. Restrict network egress, subprocess duration, CPU, memory, file count, disk bytes, and output bytes. Mount approved skills read-only. Avoid shared `node_modules` or build caches across tenants unless safely isolated.
 
-Validate the candidate against the current static deployment contract: root `index.html`, safe file types and paths, at most 10,000 entries, at most 1 GiB extracted content, and a ZIP at most 20 MiB for promotion. Reuse validation logic from `src/domains/projects/storage.py`; do not assume its ZIP extractor alone validates an already-unpacked directory. After validation, create an immutable revision checksum and replace `dev/workspace/` and `dev/public/` under the project lock also used by promotion. Use versioned candidate directories and a recovery record so both source and built output resolve to the same committed revision after a crash; do not assume two directory renames are atomic together. Retain the previous draft until replacement succeeds. PostgreSQL and disk are not one transaction.
+Validate the candidate against the current static deployment contract: root `index.html`, safe file types and paths, at most 10,000 entries, at most 1 GiB extracted content, and a ZIP at most 20 MiB for promotion. Reuse validation logic from `src/domains/projects/storage.py`; do not assume its ZIP extractor alone validates an already-unpacked directory. After validation, create an immutable revision checksum and replace `dev/public/` under the project lock also used by promotion. Use a candidate directory and recovery marker so an interrupted replacement can restore the previous draft. Retain the previous draft until replacement succeeds. PostgreSQL and disk are not one transaction.
 
 Publishing first verifies role, the supplied revision, checksum, and current draft under a **project-wide publication lock**. It packages a snapshot and uses the existing deploy/backup recording path. Manual ZIP upload and backup restore must acquire the same lock; the current implementation has no such lock. An in-process mutex is insufficient with multiple workers, so use a cross-process lock such as a PostgreSQL advisory lock or durable lease and document its crash behavior. Do not expose `publish` as a model tool. A repeated request with the same idempotency key must not create another backup.
 
@@ -128,4 +129,4 @@ Each step can be reviewed independently. Steps 1–3 establish a safe draft and 
 
 ## Operational decisions before the pilot
 
-Set concrete values for project disk quota, maximum run duration/steps, prompt retention, output/diff artifact retention, organization concurrency, and local model resource budget in configuration. Choose the Ollama model and trusted worker endpoint, then test tool-call quality on the target hardware. Select the preview origin and verify its cookie behavior in the actual console/API deployment topology. Choose the worker queue and cross-process lock implementation, then document cleanup after a crash. Decide how users export source in `dev/workspace/`; Surv currently stores only static deployments. These values do not change the isolation and explicit-publish requirements above.
+Set concrete values for project disk quota, maximum run duration/steps, prompt retention, output/diff artifact retention, organization concurrency, and local model resource budget in configuration. Choose the Ollama model and trusted worker endpoint, then test tool-call quality on the target hardware. Select the preview origin and verify its cookie behavior in the actual console/API deployment topology. Choose the worker queue and cross-process lock implementation, then document cleanup after a crash. Decide how users export source from `dev/public/`; Surv currently stores only static deployments. These values do not change the isolation and explicit-publish requirements above.

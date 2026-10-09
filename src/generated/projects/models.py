@@ -15,15 +15,6 @@ class OrganizationRole(str, enum.Enum):
 
 
 @dataclasses.dataclass()
-class AgentDraft:
-    project_id: uuid.UUID
-    revision: str
-    source_run_id: uuid.UUID
-    created_at: datetime.datetime
-    published_revision: Optional[str]
-
-
-@dataclasses.dataclass()
 class AgentFileChange:
     id: uuid.UUID
     run_id: uuid.UUID
@@ -43,7 +34,7 @@ class AgentRun:
     provider_id: str
     model_id: str
     error_message: Optional[str]
-    draft_revision: Optional[str]
+    result_revision: Optional[str]
     created_at: datetime.datetime
     started_at: Optional[datetime.datetime]
     completed_at: Optional[datetime.datetime]

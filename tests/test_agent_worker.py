@@ -29,9 +29,6 @@ class FakeRepo:
     async def get_project(self, project_id, user_id):
         return self.project
 
-    async def get_draft(self, project_id, user_id):
-        return None
-
     async def run_status(self, run_id):
         return self.status
 
@@ -41,7 +38,7 @@ class FakeRepo:
     async def add_change(self, run_id, path, kind, diff):
         self.changes.append((path, kind, diff))
 
-    async def complete_draft(self, project_id, run_id, revision):
+    async def complete_run(self, run_id, revision):
         self.revision = revision
         self.status = "succeeded"
         return True
@@ -70,14 +67,14 @@ class FakeProvider:
         self.calls += 1
         if self.calls == 1:
             await on_text("Creating the page.")
-            call = ToolCall("write_file", {"path": "index.html", "content": "<h1>Draft</h1>"})
+            call = ToolCall("write_file", {"path": "index.html", "content": "<h1>Dev app</h1>"})
             return ModelReply("", (call,), {"role": "assistant", "content": ""})
-        summary = "Customers can now review the new landing page.\n```html\n<h1>Draft</h1>\n```"
+        summary = "Customers can now review the new landing page.\n```html\n<h1>Dev app</h1>\n```"
         await on_text(summary)
         return ModelReply(summary, (), {"role": "assistant", "content": summary})
 
 
-def test_worker_writes_only_draft_and_records_review_artifacts(tmp_path):
+def test_worker_writes_dev_public_and_records_review_artifacts(tmp_path):
     project_id = uuid4()
     run = ClaimedRun(uuid4(), project_id, uuid4(), "Build a page", "fake", "test-model", None, None)
     project = AgentProject(project_id, "abc1234", "DEPLOYED", OrganizationRole.ADMIN)
@@ -97,5 +94,5 @@ def test_worker_writes_only_draft_and_records_review_artifacts(tmp_path):
         for kind, content in repository.events
     )
     assert not any(kind == "text" and "Creating" in content for kind, content in repository.events)
-    assert (tmp_path / "abc1234" / "dev" / "public" / "index.html").read_text() == "<h1>Draft</h1>"
+    assert (tmp_path / "abc1234" / "dev" / "public" / "index.html").read_text() == "<h1>Dev app</h1>"
     assert not (tmp_path / "abc1234" / "public").exists()

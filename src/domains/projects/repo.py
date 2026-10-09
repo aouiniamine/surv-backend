@@ -1,13 +1,12 @@
 import secrets
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from domains.organizations.model import OrganizationRole
 from domains.projects.model import Project, ProjectBackup
-from generated.agent.agent import AsyncQuerier as AgentQuerier
 from generated.projects.projects import AsyncQuerier
 
 PUBLIC_ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -100,7 +99,6 @@ class ProjectRepository:
 
     async def record_deployment(
         self, project_id: UUID, previous_archive_path: str | None,
-        after_record: Callable[[AsyncConnection], Awaitable[None]] | None = None,
     ) -> list[str]:
         async with self._engine.begin() as conn:
             querier = AsyncQuerier(conn)
@@ -113,10 +111,6 @@ class ProjectRepository:
                     path async for path in querier.trim_project_backups(project_id=project_id)
                 ]
             await querier.mark_project_deployed(project_id=project_id)
-            if after_record is not None:
-                await after_record(conn)
-            else:
-                await AgentQuerier(conn).clear_agent_draft_publication(project_id=project_id)
         return expired_paths
 
     async def list_backups(self, project_id: UUID, user_id: UUID) -> list[ProjectBackup]:

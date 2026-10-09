@@ -23,7 +23,7 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "list_files",
-            "description": "List editable files in the current application's source workspace.",
+            "description": "List editable files in the current dev application.",
             "parameters": {"type": "object", "properties": {}},
         },
     },
@@ -68,13 +68,13 @@ TOOLS: list[dict[str, Any]] = [
 SYSTEM_PROMPT = """You're a senior Product Engineer with expertise in UX/UI Design and
 Front-end development, you need to work on what the client asks.
 You are Surv Agent. Build a complete static website for the user's request.
-Use the file tools to create or edit HTML and JavaScript in the workspace.
+Use the file tools to create or edit HTML and JavaScript in the dev application.
 Create the site's styling with Tailwind CSS utility classes instead of plain handcrafted CSS.
-This static workspace has no build step, so include
+This static application has no build step, so include
 <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 in index.html's head.
 Use <style type="text/tailwindcss"> only for small theme or utility extensions when necessary.
-The publishable website must have index.html at the workspace root.
+The website must have index.html at the dev application's root.
 Use relative paths for project-owned assets.
 You cannot use a shell, install packages, access other projects, or publish the site.
 Before finishing, list files and check that index.html references files you created.
@@ -117,14 +117,14 @@ class AgentWorker:
         self._provider = provider
         self._project_repo = project_repo
 
-    async def _tool(self, project: AgentProject, run: ClaimedRun, call: ToolCall) -> str:
+    async def _tool(self, project: AgentProject, call: ToolCall) -> str:
         args = call.arguments
         if call.name == "list_files" and not args:
-            names = await asyncio.to_thread(self._workspace.list_files, project.public_id, run.id)
+            names = await asyncio.to_thread(self._workspace.list_files, project.public_id)
             return "\n".join(names)
         if call.name == "read_file" and isinstance(args.get("path"), str):
             return await asyncio.to_thread(
-                self._workspace.read_file, project.public_id, run.id, args["path"]
+                self._workspace.read_file, project.public_id, args["path"]
             )
         if (
             call.name == "write_file"
@@ -134,13 +134,12 @@ class AgentWorker:
             return await asyncio.to_thread(
                 self._workspace.write_file,
                 project.public_id,
-                run.id,
                 args["path"],
                 args["content"],
             )
         if call.name == "delete_file" and isinstance(args.get("path"), str):
             return await asyncio.to_thread(
-                self._workspace.delete_file, project.public_id, run.id, args["path"]
+                self._workspace.delete_file, project.public_id, args["path"]
             )
         raise AgentInvalid("Unknown tool or invalid tool arguments")
 
@@ -162,12 +161,6 @@ class AgentWorker:
         if skill is not None and skill.version != run.skill_version:
             raise AgentInvalid("Selected skill version is unavailable")
         async with self._project_repo.project_lock(run.project_id):
-            draft = await self._repo.get_draft(run.project_id, run.created_by)
-            await asyncio.to_thread(
-                self._workspace.reconcile,
-                project.public_id,
-                draft.revision if draft else None,
-            )
             await asyncio.to_thread(self._workspace.prepare, project.public_id, run.id)
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -200,7 +193,7 @@ class AgentWorker:
                 if tool_count > MAX_TOOL_CALLS:
                     raise AgentInvalid("Agent tool limit reached")
                 try:
-                    result = await self._tool(project, run, call)
+                    result = await self._tool(project, call)
                     summary = f"{call.name}: {call.arguments.get('path', '')}".strip()
                 except AgentInvalid as exc:
                     result = f"Tool error: {exc}"
@@ -223,23 +216,15 @@ class AgentWorker:
         await self._repo.add_event(
             run.id,
             "text",
-            final_message or "Your draft is ready to review. Preview it before publishing.",
+            final_message or "Your dev app is ready to review. Preview it before publishing.",
         )
         async with self._project_repo.project_lock(run.project_id):
             if await self._repo.run_status(run.id) != "running":
                 return
-            revision = await asyncio.to_thread(self._workspace.commit, project.public_id, run.id)
-            try:
-                committed = await self._repo.complete_draft(run.project_id, run.id, revision)
-            except BaseException:
-                await asyncio.to_thread(self._workspace.rollback, project.public_id, run.id)
-                raise
-            if not committed:
-                await asyncio.to_thread(self._workspace.rollback, project.public_id, run.id)
+            revision = await asyncio.to_thread(self._workspace.revision, project.public_id)
+            if not await self._repo.complete_run(run.id, revision):
                 return
-            with contextlib.suppress(OSError):
-                await asyncio.to_thread(self._workspace.finalize, project.public_id, run.id)
-        await self._repo.add_event(run.id, "status", "Draft ready for review")
+        await self._repo.add_event(run.id, "status", "Dev app ready for review")
 
     async def run_once(self) -> bool:
         run = await self._repo.claim_run()
@@ -254,7 +239,7 @@ class AgentWorker:
                 "Surv Agent run %s failed (provider=%s, model=%s) [%s]",
                 run.id, run.provider_id, run.model_id, exc,
             )
-            # Preserve reviewable diffs from a failed candidate when possible.
+            # Preserve reviewable diffs from dev/public when possible.
             project = await self._repo.get_project(run.project_id, run.created_by)
             if project is not None:
                 with contextlib.suppress(Exception):

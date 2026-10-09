@@ -1,5 +1,6 @@
 """Callable preview-session issuance and per-asset authentication."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -35,8 +36,11 @@ async def issue_preview_session(
     service: AgentService,
 ) -> str:
     project = await service.project(project_id, user_id)
-    if await service.draft(project_id, user_id) is None:
-        raise AgentNotFound("Draft not found")
+    root = await asyncio.to_thread(
+        request.app.state.project_storage.dev_asset, project.public_id, ""
+    )
+    if root is None:
+        raise AgentNotFound("Dev app not found")
     if not allowed_preview_origins(request):
         raise HTTPException(status_code=503, detail="Private preview origin is not configured")
 
@@ -69,7 +73,7 @@ async def require_preview_session(
     request: Request,
     service: AgentService = Depends(get_agent_service),
 ) -> None:
-    """FastAPI dependency: authenticate every requested draft asset."""
+    """FastAPI dependency: authenticate every requested dev asset."""
     token = request.cookies.get(PREVIEW_COOKIE)
     if not token:
         raise HTTPException(status_code=401, detail="Preview session required")
@@ -87,7 +91,10 @@ async def require_preview_session(
         project = await service.project(project_id, user_id)
         if project.public_id != public_id:
             raise ValueError("Wrong project")
-        if await service.draft(project_id, user_id, validate=False) is None:
-            raise ValueError("No draft")
+        root = await asyncio.to_thread(
+            request.app.state.project_storage.dev_asset, public_id, ""
+        )
+        if root is None:
+            raise ValueError("No dev app")
     except (jwt.PyJWTError, KeyError, TypeError, ValueError, AgentNotFound, AgentConflict) as exc:
         raise HTTPException(status_code=401, detail="Invalid preview session") from exc

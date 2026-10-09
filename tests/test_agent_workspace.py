@@ -7,30 +7,29 @@ from domains.agent.workspace import AgentWorkspace
 from domains.projects.storage import ProjectStorage
 
 
-def test_candidate_commit_diff_and_rollback(tmp_path):
+def test_agent_edits_dev_public_and_reports_changes(tmp_path):
     workspace = AgentWorkspace(ProjectStorage(tmp_path))
     public_id = "abc1234"
     live = tmp_path / public_id / "public"
-    source = tmp_path / public_id / "dev" / "workspace"
+    dev = tmp_path / public_id / "dev" / "public"
     live.mkdir(parents=True)
-    source.mkdir(parents=True)
+    dev.mkdir(parents=True)
     (live / "index.html").write_text("live", encoding="utf-8")
-    (source / "index.html").write_text("old draft", encoding="utf-8")
-    first = uuid4()
-    workspace.prepare(public_id, first)
-    workspace.write_file(public_id, first, "index.html", "new draft")
-    workspace.write_file(public_id, first, "style.css", "body { color: red; }")
-    changes = workspace.changes(public_id, first)
-    assert [item[:2] for item in changes] == [
-        ("index.html", "modified"),
-        ("style.css", "added"),
-    ]
-    revision = workspace.commit(public_id, first)
-    assert revision == workspace.revision(public_id)
+    (dev / "index.html").write_text("before", encoding="utf-8")
+    run_id = uuid4()
+
+    assert workspace.prepare(public_id, run_id) == dev
+    workspace.write_file(public_id, "index.html", "after")
+    workspace.write_file(public_id, "style.css", "body { color: red; }")
+
+    assert (dev / "index.html").read_text() == "after"
     assert (live / "index.html").read_text() == "live"
-    workspace.rollback(public_id, first)
-    assert (source / "index.html").read_text() == "old draft"
-    assert not (tmp_path / public_id / "dev" / "public").exists()
+    assert [item[:2] for item in workspace.changes(public_id, run_id)] == [
+        ("index.html", "modified"), ("style.css", "added")
+    ]
+    workspace.cleanup(public_id, run_id)
+    assert (dev / "index.html").read_text() == "after"
+    assert not (tmp_path / public_id / "dev" / ".runs" / str(run_id)).exists()
 
 
 @pytest.mark.parametrize(
@@ -38,31 +37,35 @@ def test_candidate_commit_diff_and_rollback(tmp_path):
 )
 def test_file_tool_rejects_escape(tmp_path, name):
     workspace = AgentWorkspace(ProjectStorage(tmp_path))
-    run_id = uuid4()
-    workspace.prepare("abc1234", run_id)
+    workspace.prepare("abc1234", uuid4())
     with pytest.raises(AgentInvalid):
-        workspace.write_file("abc1234", run_id, name, "x")
+        workspace.write_file("abc1234", name, "x")
 
 
-def test_candidate_rejects_symlink(tmp_path):
+def test_dev_public_rejects_symlink(tmp_path):
     workspace = AgentWorkspace(ProjectStorage(tmp_path))
-    run_id = uuid4()
-    candidate = workspace.prepare("abc1234", run_id)
-    (candidate / "outside.html").symlink_to(tmp_path / "outside.html")
+    dev = workspace.prepare("abc1234", uuid4())
+    (dev / "outside.html").symlink_to(tmp_path / "outside.html")
     with pytest.raises(AgentInvalid):
-        workspace.list_files("abc1234", run_id)
+        workspace.list_files("abc1234")
 
 
-def test_reconcile_restores_draft_after_crash_before_database_commit(tmp_path):
+def test_copy_live_app_seeds_dev_public(tmp_path):
     workspace = AgentWorkspace(ProjectStorage(tmp_path))
     public_id = "abc1234"
-    source = tmp_path / public_id / "dev" / "workspace"
-    source.mkdir(parents=True)
-    (source / "index.html").write_text("before", encoding="utf-8")
-    first = uuid4()
-    workspace.prepare(public_id, first)
-    workspace.write_file(public_id, first, "index.html", "after")
-    workspace.commit(public_id, first)
-    workspace.reconcile(public_id, None)
-    assert (source / "index.html").read_text() == "before"
-    assert not (tmp_path / public_id / "dev" / "public").exists()
+    live = tmp_path / public_id / "public"
+    live.mkdir(parents=True)
+    (live / "index.html").write_text("live app", encoding="utf-8")
+    (live / "logo.png").write_bytes(b"\x89PNG\x00")
+
+    workspace.copy_live_app_to_dev(public_id)
+    dev = tmp_path / public_id / "dev" / "public"
+    assert (dev / "index.html").read_text() == "live app"
+    assert (dev / "logo.png").read_bytes() == b"\x89PNG\x00"
+    run_id = uuid4()
+    workspace.prepare(public_id, run_id)
+    assert workspace.list_files(public_id) == ["index.html"]
+    workspace.write_file(public_id, "index.html", "edited")
+    assert (dev / "index.html").read_text() == "edited"
+    assert (live / "index.html").read_text() == "live app"
+    assert not (tmp_path / public_id / "dev" / "workspace").exists()

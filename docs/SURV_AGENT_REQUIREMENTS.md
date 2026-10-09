@@ -1,5 +1,7 @@
 # Surv Agent requirements
 
+> **Current implementation update (9 October 2026):** Surv Agent now reads and edits `{public_id}/dev/public` directly. It no longer has a draft record, candidate tree, revision-gated draft publish, or `/draft` endpoint. Failed or cancelled runs can leave edits in the dev app. The live app changes only through explicit publish. See [the current architecture](SURV_AGENT_IMPLEMENTATION_ARCHITECTURE.md) for the implemented flow; older draft and candidate descriptions below record the original design.
+
 **Status:** Proposed requirements · **Date:** 2026-10-07  
 **Applies to:** `surv-backend/` and `surv-project/apps/client/`  
 **Decisions:** [Agent integration ADR](ADR-001-SURV-AGENT-INTEGRATION.md), [AI providers ADR](ADR-002-AI-PROVIDERS.md)  
@@ -18,11 +20,11 @@ The first release builds static files with a root `index.html`, matching Surv's 
 | ID | Requirement | Acceptance evidence |
 | --- | --- | --- |
 | F-01 | Admins and Developers can start a run for a project with a bounded prompt and an allowlisted skill selection. One project has at most one active run. | API returns a run ID promptly; concurrent start returns a conflict; nonmembers and QA cannot start. |
-| F-02 | The agent creates/edits a private candidate copy of `dev/workspace/`, builds into a candidate static output, and installs a validated revision into `dev/public/` only after success. | Failed, cancelled, or invalid builds leave the last successful draft and live site unchanged. |
+| F-02 | The agent creates/edits a private candidate copy of `dev/public/` and installs a validated revision back into `dev/public/` only after success. | Failed, cancelled, or invalid builds leave the last successful draft and live site unchanged. |
 | F-03 | Runs move through `queued`, `running`, and exactly one terminal state: `succeeded`, `failed`, or `cancelled`. Cancellation is idempotent. | State transitions and worker-restart recovery are tested. |
 | F-04 | The client can read ordered agent output text and safe tool/status summaries while a run progresses and after it ends. Reconnection resumes from a sequence cursor. | No missing or duplicated displayed events after reconnect; failed runs retain useful output. |
 | F-05 | The client can list added, modified, and deleted source files and open a bounded per-file diff relative to the source snapshot taken at run start. Binary/oversized files show metadata instead of raw content. | Text diffs match the baseline and candidate; failed-run edits remain reviewable; paths are relative and safe. |
-| F-06 | Members, including QA, can view the latest validated draft site through a private preview with working assets and SPA fallback. | Preview loads HTML and subresources, is labeled Draft, and remains separate from the live URL. |
+| F-06 | Members, including QA, can view the current `dev/public/` site through a private preview with working assets and SPA fallback, even before an agent run records a validated draft. | Preview loads HTML and subresources, is labeled as the current dev app, and remains separate from the live URL. |
 | F-07 | An Admin or Developer can publish a specified draft revision only through a distinct, explicit action. | A stale revision conflicts; the existing deployment path creates the same live status and backup behavior as manual upload. |
 | F-08 | Members can list and inspect recent runs for their project, including model, skill versions, timestamps, state, usage where known, safe failure reason, output, and diffs. | Cursor pagination and organization isolation are tested. |
 | F-09 | Operator-installed, versioned skills can be selected by task. Impeccable is available for applicable frontend work. | Run record identifies exact skill versions; unavailable or invalid skills fail safely before work begins. |

@@ -1,5 +1,7 @@
 # ADR-001: Surv Agent integration and isolated development workspace
 
+> **Current implementation update (9 October 2026):** Surv Agent now reads and edits `{public_id}/dev/public` directly. It no longer has a draft record, candidate tree, revision-gated draft publish, or `/draft` endpoint. Failed or cancelled runs can leave edits in the dev app. The live app changes only through explicit publish. See [the current architecture](SURV_AGENT_IMPLEMENTATION_ARCHITECTURE.md) for the implemented flow; older draft and candidate descriptions below record the original design.
+
 - **Status:** Proposed
 - **Date:** 2026-10-07
 - **Owners:** Surv backend and client
@@ -15,7 +17,7 @@ The API uses a UUID `projects.id` for project metadata and a seven-character `pr
 
 ## Decision
 
-Introduce a Surv Agent as an asynchronous, project-scoped job in its own backend domain, `src/domains/agent/`, with routes under `/v1/agent/`. The agent domain owns runs, output events, change diffs, draft preview, and promotion orchestration; it uses the projects domain's authorized project/deployment primitives without placing agent routes under `/v1/projects/`. It writes only inside the selected project's `dev/` tree. Its publishable static output is `dev/public/`, with `index.html` at its root. If source code and a build are needed, keep source and build caches under `dev/workspace/` and copy only the validated build into `dev/public/`. The agent must never write `public/`, `current.zip`, or `backups/` directly.
+Introduce a Surv Agent as an asynchronous, project-scoped job in its own backend domain, `src/domains/agent/`, with routes under `/v1/agent/`. The agent domain owns runs, output events, change diffs, draft preview, and promotion orchestration; it uses the projects domain's authorized project/deployment primitives without placing agent routes under `/v1/projects/`. It writes only inside the selected project's `dev/` tree. Its publishable static output is `dev/public/`, with `index.html` at its root. Run candidates stay under `dev/.runs/` until validated and committed to `dev/public/`. The agent must never write live `public/`, `current.zip`, or `backups/` directly.
 
 ```text
 ${PROJECT_UPLOADS_ROOT}/{public_id}/
@@ -23,8 +25,8 @@ ${PROJECT_UPLOADS_ROOT}/{public_id}/
 ├── current.zip             # current live archive; existing flow owns this
 ├── backups/                # existing deployment history
 └── dev/
-    ├── workspace/          # optional source and temporary build inputs
-    └── public/             # agent draft, served only by authenticated preview
+    ├── public/             # agent draft, served only by authenticated preview
+    └── .runs/              # isolated candidate files during runs
 ```
 
 The first implementation targets Surv's current **static hosting** contract. The agent may generate a static app or build source into static files. Running arbitrary project application servers is outside this decision.
@@ -33,7 +35,7 @@ The first implementation targets Surv's current **static hosting** contract. The
 
 1. An authenticated Admin or Developer starts a run for a project UUID with a prompt and an optional approved skill set. The API checks organization membership before creating the run. QA may inspect the draft and run report, but may not start, cancel, or publish a run.
 2. A worker acquires a per-project development lock, records a run ID and state (`queued`, `running`, `succeeded`, `failed`, `cancelled`), snapshots the starting source state, and creates a fresh staging directory under `dev/`. Existing `dev/public/` remains viewable until a new candidate passes validation.
-3. The agent reads only project instructions and files explicitly mounted for the run. File tools are rooted at a private candidate copy under `dev/.runs/{run_id}/`; the persisted `dev/workspace/` is its read-only starting snapshot until the run succeeds. Every path is resolved after normalization; reject traversal, symlinks, hard links, and links that escape the workspace. Run shell/build tools in a separate process or container with CPU, memory, disk, time, output, and network limits. Do not mount backend source, other projects, deployment credentials, database sockets, or provider keys into that runtime.
+3. The agent reads only project instructions and files explicitly mounted for the run. File tools are rooted at a private candidate copy under `dev/.runs/{run_id}/candidate/`; `dev/public/` is its starting snapshot until the run succeeds. Every path is resolved after normalization; reject traversal, symlinks, hard links, and links that escape the candidate. Run shell/build tools in a separate process or container with CPU, memory, disk, time, output, and network limits. Do not mount backend source, other projects, deployment credentials, database sockets, or provider keys into that runtime.
 4. The worker validates the candidate with the same static archive limits as deployment: root `index.html`, safe regular files, bounded entry count and extracted size. It then atomically swaps the candidate into `dev/public/`. A failed or cancelled run leaves the last successful draft intact.
 5. The draft has a distinct, protected preview at `GET /app/{public_id}/dev/...`, with organization authentication and no shared cache with the live `/app/{public_id}/` site. The client uses a sandboxed iframe and clearly labels the view **Draft**; clicking its card opens a full preview in a new window. Alongside the site preview it shows the agent's output text and, after the run ends, a per-file diff against the source snapshot taken when that run began. Text and diffs are separate authenticated agent-domain resources, so they can be inspected even if a build fails. Asset rewriting and SPA fallback reuse the existing static-serving behavior with a different root. The preview path requires a short-lived session on every asset request and never falls through to live files.
 6. Publishing is a separate explicit Admin or Developer action. Package a snapshot of the validated `dev/public/` as a ZIP and send it through the existing deployment publication path and backup transaction. Recheck access and candidate revision under a per-project publish lock; reject stale revisions. Publishing changes live `public/` and backup history only through this path. The agent cannot invoke publish as a model tool.
