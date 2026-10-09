@@ -19,6 +19,7 @@ class FakeRepo:
         self.events = []
         self.changes = []
         self.revision = None
+        self.events_before_completion = []
 
     async def claim_run(self):
         if self.claimed:
@@ -39,6 +40,7 @@ class FakeRepo:
         self.changes.append((path, kind, diff))
 
     async def complete_run(self, run_id, revision):
+        self.events_before_completion = list(self.events)
         self.revision = revision
         self.status = "succeeded"
         return True
@@ -66,9 +68,10 @@ class FakeProvider:
     async def complete(self, messages, tools, on_text):
         self.calls += 1
         if self.calls == 1:
-            await on_text("Creating the page.")
+            progress = "I’m updating the page so visitors can find the key information faster."
+            await on_text(progress)
             call = ToolCall("write_file", {"path": "index.html", "content": "<h1>Dev app</h1>"})
-            return ModelReply("", (call,), {"role": "assistant", "content": ""})
+            return ModelReply(progress, (call,), {"role": "assistant", "content": progress})
         summary = "Customers can now review the new landing page.\n```html\n<h1>Dev app</h1>\n```"
         await on_text(summary)
         return ModelReply(summary, (), {"role": "assistant", "content": summary})
@@ -89,10 +92,15 @@ def test_worker_writes_dev_public_and_records_review_artifacts(tmp_path):
     assert repository.status == "succeeded"
     assert repository.revision is not None
     assert repository.changes[0][:2] == ("index.html", "added")
+    assert any(kind == "text" and "visitors can find" in content
+               for kind, content in repository.events_before_completion)
+    assert any(kind == "status" and content == "Applying changes to the app."
+               for kind, content in repository.events_before_completion)
+    assert not any("index.html" in content for _, content in repository.events)
     assert any(
         kind == "text" and content == "Customers can now review the new landing page."
         for kind, content in repository.events
     )
-    assert not any(kind == "text" and "Creating" in content for kind, content in repository.events)
-    assert (tmp_path / "abc1234" / "dev" / "public" / "index.html").read_text() == "<h1>Dev app</h1>"
+    page = tmp_path / "abc1234" / "dev" / "public" / "index.html"
+    assert page.read_text() == "<h1>Dev app</h1>"
     assert not (tmp_path / "abc1234" / "public").exists()

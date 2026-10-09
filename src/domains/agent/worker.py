@@ -78,12 +78,19 @@ The website must have index.html at the dev application's root.
 Use relative paths for project-owned assets.
 You cannot use a shell, install packages, access other projects, or publish the site.
 Before finishing, list files and check that index.html references files you created.
-After all file work is complete, give the client a concise plain-language summary focused on
-the requested business outcome, what visitors can now do, and any meaningful limitation.
-Do not show code, file paths, tool names, styling technology, implementation steps,
-or developer jargon
-in that client-facing response. Never include secrets or hidden reasoning.
+As you work, briefly tell the client what you are checking or changing and why before
+each group of file tool calls. These progress notes are visible while the run is active.
+Give a final plain-language outcome focused on what visitors can now do and any
+meaningful limitation. In all client-facing text, do not show code, file paths, tool names,
+styling technology, developer jargon, secrets, or hidden reasoning.
 """
+
+TOOL_PROGRESS = {
+    "list_files": "Reviewing the current app.",
+    "read_file": "Checking the existing content and layout.",
+    "write_file": "Applying changes to the app.",
+    "delete_file": "Removing content that is no longer needed.",
+}
 
 
 def _redact(value: str) -> str:
@@ -92,10 +99,10 @@ def _redact(value: str) -> str:
     return value
 
 
-def _client_summary(value: str) -> str:
-    # Model responses can contain a code sample despite the prompt. Keep it out of the
-    # client-facing summary; the separate changed-file review exposes diffs on request.
-    without_code = re.sub(r"```.*?```", "", value, flags=re.DOTALL)
+def _client_message(value: str) -> str:
+    # Model responses can contain code despite the prompt. Keep it in the diff review.
+    without_code = re.sub(r"<think>.*?(?:</think>|$)", "", value, flags=re.DOTALL | re.IGNORECASE)
+    without_code = re.sub(r"```.*?(?:```|$)", "", without_code, flags=re.DOTALL)
     without_code = re.sub(r"`[^`\n]+`", "", without_code)
     without_code = "\n".join(
         line for line in without_code.splitlines()
@@ -156,6 +163,7 @@ class AgentWorker:
             raise AgentInvalid("Configured provider changed before the run started")
         if run.model_id != self._provider.model_id:
             raise AgentInvalid("Configured model changed before the run started")
+        await self._repo.add_event(run.id, "status", "Getting ready to review your app.")
         await self._provider.check_ready()
         skill = select_skill(run.skill_id)
         if skill is not None and skill.version != run.skill_version:
@@ -184,8 +192,11 @@ class AgentWorker:
             reply = await self._provider.complete(messages, TOOLS, on_text)
             messages.append(reply.assistant_message)
             if not reply.tool_calls:
-                final_message = _client_summary(reply.content)
+                final_message = _client_message(reply.content)
                 break
+            progress = _client_message(reply.content)[:800]
+            if progress:
+                await self._repo.add_event(run.id, "text", progress)
             for call in reply.tool_calls:
                 if await self._repo.run_status(run.id) != "running":
                     return
@@ -194,11 +205,11 @@ class AgentWorker:
                     raise AgentInvalid("Agent tool limit reached")
                 try:
                     result = await self._tool(project, call)
-                    summary = f"{call.name}: {call.arguments.get('path', '')}".strip()
+                    summary = TOOL_PROGRESS.get(call.name, "Working on the app.")
                 except AgentInvalid as exc:
                     result = f"Tool error: {exc}"
-                    summary = f"{call.name}: rejected"
-                await self._repo.add_event(run.id, "tool", _redact(summary))
+                    summary = "A change needs another approach; reviewing it again."
+                await self._repo.add_event(run.id, "status", summary)
                 messages.append(
                     {
                         "role": "tool", "tool_name": call.name,
@@ -224,7 +235,6 @@ class AgentWorker:
             revision = await asyncio.to_thread(self._workspace.revision, project.public_id)
             if not await self._repo.complete_run(run.id, revision):
                 return
-        await self._repo.add_event(run.id, "status", "Dev app ready for review")
 
     async def run_once(self) -> bool:
         run = await self._repo.claim_run()
