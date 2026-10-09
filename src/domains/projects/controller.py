@@ -1,5 +1,6 @@
 import asyncio
 import mimetypes
+from email.utils import formatdate, parsedate_to_datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -30,6 +31,14 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 app_router = APIRouter(prefix="/app", tags=["apps"])
 backup_app_router = APIRouter(prefix="/app-backups", tags=["apps"])
 
+
+def _live_asset_headers(asset: Path) -> dict[str, str]:
+    info = asset.stat()
+    return {
+        "Last-Modified": formatdate(info.st_mtime, usegmt=True),
+        "ETag": f'"{info.st_mtime_ns:x}-{info.st_size:x}"',
+        # "Cache-Control": "max-age=0, must-revalidate",
+    }
 
 def project_app_url(request: Request, public_id: str) -> str:
     settings = request.app.state.settings
@@ -189,12 +198,13 @@ async def serve_project_app(
         raise HTTPException(status_code=404, detail="App not found") from exc
     if asset is None:
         raise HTTPException(status_code=404, detail="App not found")
+    headers = _live_asset_headers(asset)
     rewritten = await asyncio.to_thread(
         request.app.state.project_storage.rewritten_asset, project_public_id, asset
     )
     if rewritten is not None:
-        return Response(rewritten, media_type=mimetypes.guess_type(asset.name)[0])
-    return FileResponse(asset)
+        return Response(rewritten, media_type=mimetypes.guess_type(asset.name)[0], headers=headers)
+    return FileResponse(asset, headers=headers)
 
 
 @backup_app_router.get(
